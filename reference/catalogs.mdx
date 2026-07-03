@@ -1,0 +1,315 @@
+---
+title: "A2UI Catalog System: Schema, Negotiation & Versioning"
+sidebarTitle: "Catalogs"
+description: "Learn how A2UI catalogs define available components, how client–agent negotiation works, and how to version and extend catalogs safely in production."
+---
+
+Every A2UI surface is driven by a **catalog** — a JSON Schema file that declares exactly which components, functions, and theme properties an agent may use when building a surface. The catalog acts as a shared contract: the agent reads it to know what it can generate, and the client uses it to validate incoming messages and resolve component implementations. Because the catalog is just a JSON Schema file, it can live at any stable URL and is loaded at build or deploy time — not at runtime.
+
+---
+
+## What Is a Catalog?
+
+A catalog is a JSON object conforming to the following schema. The `catalogId` field is the only required property:
+
+```json
+{
+  "Catalog": {
+    "type": "object",
+    "description": "A collection of component and function definitions.",
+    "properties": {
+      "catalogId": {
+        "type": "string",
+        "description": "Unique identifier for this catalog."
+      },
+      "components": {
+        "type": "object",
+        "description": "Definitions for UI components supported by this catalog.",
+        "additionalProperties": {
+          "$ref": "https://json-schema.org/draft/2020-12/schema"
+        }
+      },
+      "functions": {
+        "type": "array",
+        "description": "Definitions for functions supported by this catalog.",
+        "items": { "$ref": "#/$defs/FunctionDefinition" }
+      },
+      "theme": {
+        "title": "A2UI Theme",
+        "description": "A schema that defines a catalog of A2UI theme properties.",
+        "type": "object",
+        "additionalProperties": {
+          "$ref": "https://json-schema.org/draft/2020-12/schema"
+        }
+      }
+    },
+    "required": ["catalogId"],
+    "additionalProperties": false
+  }
+}
+```
+
+Each key under `components` is a component type name (e.g., `"Text"`, `"Button"`), and its value is a JSON Schema object describing that component's properties. The agent validates its output against this schema before sending; the client validates incoming messages against its locally-known copy.
+
+---
+
+## The Basic Catalog
+
+To help developers start quickly, the A2UI team publishes a general-purpose **Basic Catalog** containing a curated set of layout, display, and input components with open-source renderer implementations:
+
+```
+https://a2ui.org/specification/v0_9_1/catalogs/basic/catalog.json
+```
+
+The basic catalog is not a special protocol tier — it is simply a catalog file that already exists, is versioned, and has renderers available. You can use it as-is for prototypes or greenfield projects, or you can extend it with your own components.
+
+<Tip>
+  For mature frontends with an existing design system, define your own catalog that mirrors your components directly. For new projects, start with the basic catalog and evolve your own catalog as the application grows.
+</Tip>
+
+### Minimal Catalog Example
+
+The following catalog defines a single component, `HelloWorldBanner`:
+
+```json
+{
+  "$id": "https://example.com/catalogs/hello-world/v1/catalog.json",
+  "components": {
+    "HelloWorldBanner": {
+      "type": "object",
+      "description": "A simple banner greeting.",
+      "properties": {
+        "message": {
+          "type": "string",
+          "description": "The banner text."
+        },
+        "backgroundColor": {
+          "type": "string",
+          "default": "#f0f0f0"
+        }
+      },
+      "required": ["message"]
+    }
+  }
+}
+```
+
+When an agent uses this catalog, its `createSurface` and `updateComponents` messages must strictly conform to it:
+
+```json
+{
+  "version": "v0.9",
+  "createSurface": {
+    "surfaceId": "welcome-surface",
+    "catalogId": "https://example.com/catalogs/hello-world/v1/catalog.json"
+  }
+}
+```
+
+```json
+{
+  "version": "v0.9",
+  "updateComponents": {
+    "surfaceId": "welcome-surface",
+    "components": [
+      {
+        "id": "root",
+        "component": "HelloWorldBanner",
+        "message": "Hello, world! Welcome to your first catalog.",
+        "backgroundColor": "#4CAF50"
+      }
+    ]
+  }
+}
+```
+
+---
+
+## Catalog Negotiation
+
+Because a client may support multiple catalogs and an agent may be capable of generating several, they perform a negotiation handshake to agree on which catalog to use for each surface.
+
+### Step 1 — Agent advertises supported catalogs (optional)
+
+The agent may publish its supported catalogs in its A2A Agent Card. This is informational and not required:
+
+```json
+{
+  "name": "Travel Assistant Agent",
+  "capabilities": {
+    "extensions": [
+      {
+        "uri": "https://a2ui.org/a2a-extension/a2ui/v0.9",
+        "params": {
+          "supportedCatalogIds": [
+            "https://a2ui.org/specification/v0_9_1/catalogs/basic/catalog.json",
+            "https://example.com/catalogs/travel-ui/v2/catalog.json"
+          ]
+        }
+      }
+    ]
+  }
+}
+```
+
+### Step 2 — Client sends supported catalogs (required)
+
+On every request, the client includes an ordered list of `supportedCatalogIds` in the message metadata. This tells the agent exactly what the client can render right now:
+
+```json
+{
+  "parts": [{ "text": "What is the status of flight AA123?" }],
+  "metadata": {
+    "a2uiClientCapabilities": {
+      "supportedCatalogIds": [
+        "https://a2ui.org/specification/v0_9_1/catalogs/basic/catalog.json",
+        "https://example.com/catalogs/travel-ui/v2/catalog.json"
+      ]
+    }
+  }
+}
+```
+
+### Step 3 — Agent selects a catalog
+
+When the agent creates a new surface, it picks the best match from the client's list and locks that choice for the lifetime of the surface. If no compatible catalog is found, the agent does not send a UI:
+
+```json
+{
+  "version": "v0.9",
+  "createSurface": {
+    "surfaceId": "flight-status",
+    "catalogId": "https://a2ui.org/specification/v0_9_1/catalogs/basic/catalog.json"
+  }
+}
+```
+
+<Note>
+  The `catalogId` URI is a stable **identifier**, not a URL the agent or client fetches at runtime. Both sides must have the catalog definition available at build or deploy time.
+</Note>
+
+---
+
+## Extending the Basic Catalog
+
+You do not have to build a catalog from scratch. You can import components from the basic catalog and add your own on top.
+
+### Extending with all basic components
+
+```json
+{
+  "$id": "https://example.com/catalogs/my-app/v1/catalog.json",
+  "components": {
+    "allOf": [
+      { "$ref": "basic_catalog_definition.json#/components" },
+      {
+        "SuggestionChips": {
+          "type": "object",
+          "description": "A row of suggested prompt chips.",
+          "properties": {
+            "suggestions": {
+              "type": "array",
+              "description": "The suggested prompt strings."
+            }
+          },
+          "required": ["suggestions"]
+        }
+      }
+    ]
+  }
+}
+```
+
+### Cherry-picking a single component
+
+```json
+{
+  "$id": "https://example.com/catalogs/popup-only/v1/catalog.json",
+  "components": {
+    "allOf": [
+      { "$ref": "catalogs/basic/catalog.json#/components/Text" },
+      {
+        "Popup": {
+          "type": "object",
+          "description": "A modal overlay that displays an icon and text.",
+          "properties": {
+            "text": { "$ref": "common_types.json#/$defs/ComponentId" }
+          },
+          "required": ["text"]
+        }
+      }
+    ]
+  }
+}
+```
+
+<Note>
+  Catalogs must be **standalone** (no unresolved external `$ref` links) when deployed to agents and clients. Author catalogs modularly during development, then run the `register-catalogs.js` linking script — integrated into Xcode Build Phases and Gradle tasks — to bundle all references into a single self-contained file.
+</Note>
+
+---
+
+## Versioning
+
+Catalog definitions are typically built into client and agent binaries at compile time, so any mismatch between what an agent generates and what the client can render can silently break a UI. Versioning prevents this.
+
+### The catalogId as a version vector
+
+The convention is to embed the version directly in the catalog URI:
+
+| Change Type | URI Example |
+|-------------|-------------|
+| Current 1.x line | `https://example.com/catalogs/my-app/v1/catalog.json` |
+| Breaking v2 | `https://example.com/catalogs/my-app/v2/catalog.json` |
+
+### Breaking vs. non-breaking changes
+
+| Category | Examples | Required Action |
+|----------|---------|----------------|
+| **Breaking (major bump)** | Adding/removing a container component; changing a field type; adding a required property without a default | Increment major version in URI |
+| **Non-breaking** | Adding a leaf (non-container) component; adding an optional property; removing a property; updating descriptions | No version bump needed |
+
+### Graceful degradation
+
+Clients **must not crash** when they encounter unknown components or properties. Instead they should:
+
+- Render a text fallback or a generic "Not Supported" placeholder for unknown components.
+- Silently ignore unknown properties on known components.
+- Report validation failures back to the agent via the `VALIDATION_FAILED` error event so the agent can self-correct:
+
+```json
+{
+  "version": "v0.9",
+  "error": {
+    "code": "VALIDATION_FAILED",
+    "surfaceId": "flight-status",
+    "path": "/components/FlightCard/flightNumber",
+    "message": "Missing required property 'flightNumber' in component 'FlightCard'."
+  }
+}
+```
+
+### Zero-downtime migration
+
+To upgrade from v1 to v2 without breaking active agents:
+
+1. **Update the client** to include both `v2` and `v1` in `supportedCatalogIds` (v2 first as the preference).
+2. **Deploy the updated agent** built with the v2 schema — it selects v2 when clients support it.
+3. **Older agents** continue to match v1 from the client's list and keep working until they are rebuilt.
+
+---
+
+<CardGroup cols={2}>
+  <Card title="Message Reference" icon="envelope" href="/reference/messages">
+    createSurface, updateComponents, and all A2UI message types.
+  </Card>
+  <Card title="Component Reference" icon="puzzle-piece" href="/reference/components">
+    All basic catalog components with full property documentation.
+  </Card>
+  <Card title="Data Binding" icon="link" href="/reference/data-binding">
+    Binding component properties to data model paths reactively.
+  </Card>
+  <Card title="Transports" icon="arrow-right-arrow-left" href="/reference/transports">
+    Deliver A2UI messages over A2A, AG-UI, WebSockets, and REST.
+  </Card>
+</CardGroup>

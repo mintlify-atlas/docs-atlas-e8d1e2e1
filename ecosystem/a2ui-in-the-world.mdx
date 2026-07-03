@@ -1,0 +1,174 @@
+---
+title: "A2UI in the World: Real-World Deployments and Partners"
+sidebarTitle: "In the World"
+description: "How Google Opal, Gemini Enterprise, Flutter GenUI SDK, ADK, AG-UI, and AG2 use A2UI in production to power agent-generated user interfaces at scale."
+---
+
+A2UI is being adopted by teams at Google and across the broader AI ecosystem to build the next generation of agent-driven applications. From consumer AI mini-app platforms to enterprise workflow automation and cross-platform mobile SDKs, the protocol is proving out a core idea: agents should generate interfaces, not just text. The following case studies and partner integrations show where A2UI is making an impact today.
+
+---
+
+## Production Deployments
+
+### Google Opal: AI Mini-Apps for Everyone
+
+[Opal](http://opal.google) enables hundreds of thousands of people to build, edit, and share AI mini-apps using natural language — no coding required. The Opal team at Google has been a **core contributor to A2UI** from the beginning, using the protocol to power the dynamic, generative UI system that makes Opal's AI mini-apps possible.
+
+**How Opal uses A2UI:**
+
+- **Rapid prototyping** — Build and test new UI patterns quickly without shipping new front-end code.
+- **User-generated apps** — Anyone can create apps with fully custom UIs driven by their own prompts.
+- **Dynamic interfaces** — UIs adapt to each use case automatically rather than following a fixed template.
+
+> "A2UI is foundational to our work. It gives us the flexibility to let the AI drive the user experience in novel ways, without being constrained by a fixed front-end. Its declarative nature and focus on security allow us to experiment quickly and safely."
+>
+> **— Dimitri Glazkov**, Principal Engineer, Opal Team
+
+**Learn more:** [opal.google](http://opal.google)
+
+---
+
+### Gemini Enterprise: Custom Agents for Business
+
+Gemini Enterprise enables businesses to build powerful, custom AI agents tailored to their specific workflows and data. A2UI is being integrated to allow enterprise agents to render **rich, interactive UIs** within business applications — going well beyond simple text responses to guide employees through complex workflows.
+
+**How Gemini Enterprise uses A2UI:**
+
+- **Data entry forms** — AI-generated forms for structured data collection.
+- **Approval dashboards** — Dynamic UIs for multi-step review and approval processes.
+- **Workflow automation** — Step-by-step interfaces for complex, multi-stage tasks.
+- **Custom enterprise UIs** — Tailored interfaces for industry-specific needs and branding.
+
+> "Our customers need their agents to do more than just answer questions; they need them to guide employees through complex workflows. A2UI will allow developers building on Gemini Enterprise to have their agents generate the dynamic, custom UIs needed for any task, from data entry forms to approval dashboards, dramatically accelerating workflow automation."
+>
+> **— Fred Jabbour**, Product Manager, Gemini Enterprise
+
+**Learn more:** [Gemini Enterprise](https://cloud.google.com/gemini)
+
+---
+
+### Flutter GenUI SDK: Generative UI Across Every Platform
+
+The [Flutter GenUI SDK](https://docs.flutter.dev/ai/genui) brings dynamic, AI-generated UIs to Flutter applications across mobile, desktop, and web. GenUI SDK uses **A2UI as the underlying protocol** for communication between server-side agents and Flutter applications — when you use GenUI, A2UI is running under the covers.
+
+**How Flutter GenUI uses A2UI:**
+
+- **Cross-platform support** — The same agent works on iOS, Android, web, and desktop with no per-platform changes.
+- **Native performance** — Flutter widgets are rendered natively on each platform for a high-quality feel.
+- **Brand consistency** — Generated UIs match your app's design system automatically.
+- **Server-driven UI** — Agents control what is shown without requiring app updates or new releases.
+
+> "Our developers choose Flutter because it lets them quickly create expressive, brand-rich, custom design systems that feel great on every platform. A2UI was a great fit for Flutter's GenUI SDK because it ensures that every user, on every platform, gets a high quality native feeling experience."
+>
+> **— Vijay Menon**, Engineering Director, Dart & Flutter
+
+**Try it:**
+- [GenUI Documentation](https://docs.flutter.dev/ai/genui)
+- [Getting Started Video](https://www.youtube.com/watch?v=nWr6eZKM6no)
+- [Verdure Example](https://github.com/flutter/genui/tree/main/examples/verdure) — a full client-server A2UI sample
+
+---
+
+### Google ADK: Agent Development Kit
+
+The [Agent Development Kit](https://google.github.io/adk-docs/) (ADK) is Google's open-source framework for building and deploying AI agents. The built-in developer UI, [ADK Web](https://github.com/google/adk-web), includes native A2UI rendering out of the box.
+
+**How ADK uses A2UI:**
+
+- **Built-in rendering** — ADK Web renders A2UI components natively in the developer chat UI with no additional setup.
+- **A2A integration** — A2UI messages are automatically converted between A2A `DataPart` metadata and ADK events.
+- **Agent SDK** — The [A2UI Python agent SDK](https://github.com/a2ui-project/a2ui/tree/main/agent_sdks/python) provides an ADK extension for generating A2UI directly from agents.
+
+**Try it:**
+- [ADK Documentation](https://google.github.io/adk-docs/)
+- [ADK Web](https://github.com/google/adk-web) — developer UI with A2UI support
+
+---
+
+## Partner Integrations
+
+### AG-UI / CopilotKit: Full-Stack Agentic Framework
+
+[AG-UI](https://ag-ui.com/) provides the protocol and [CopilotKit](https://www.copilotkit.ai/) provides the primary full-stack framework for building agentic applications, with **day-zero A2UI compatibility**. AG-UI excels at creating high-bandwidth connections between custom frontends and their dedicated agents. Adding A2UI support gives developers the best of both worlds.
+
+**How they work together:**
+
+- **State synchronization** — AG-UI handles app state and chat history between agent turns.
+- **A2UI rendering** — Render dynamic UIs streamed from third-party agents via the A2UI protocol.
+- **Multi-agent support** — Coordinate UIs contributed by multiple agents on the same surface.
+- **Framework integrations** — React, Vue, Angular, and other app surfaces through CopilotKit.
+
+> "AG-UI excels at creating a high-bandwidth connection between a custom-built front-end and its dedicated agent. By adding support for A2UI, we're giving developers the best of both worlds. They can now build rich, state-synced applications that can also render dynamic UIs from third-party agents via A2UI. It's a perfect match for a multi-agent world."
+>
+> **— Atai Barkai**, Founder of CopilotKit and AG-UI
+
+**Learn more:** [AG-UI](https://ag-ui.com/) · [CopilotKit](https://www.copilotkit.ai/)
+
+---
+
+### AG2: Multi-Agent Framework with Native A2UI
+
+[AG2](https://ag2.ai/) is a popular multi-agent framework offering advanced orchestration of agents. Its [A2UIAgent](https://docs.ag2.ai/latest/docs/user-guide/reference-agents/a2uiagent) is a reference agent with native A2UI support, enabling AG2 agents to generate rich, interactive UI served over both A2A and AG-UI transports.
+
+**How AG2 uses A2UI:**
+
+- **Validated output** — Built-in schema validation with retry ensures reliable A2UI generation on every turn.
+- **Dual transport** — Serves the same agent UI over both A2A (JSON-RPC) and AG-UI (SSE) simultaneously.
+- **Cross-platform** — One agent definition serves web, desktop, and mobile clients without changes.
+- **Custom catalogs** — Extend the component catalog with domain-specific components for specialized UIs.
+
+> "A2UIAgent brings the A2UI protocol to AG2, enabling agent expression with dynamic, rich, and interactive UIs. Reliable, client-agnostic rendering means our developers spend less time on integration and more time building great experiences."
+>
+> **— Mark Sze**, Founding Engineer, AG2
+
+**Learn more:**
+- [A2UIAgent Documentation](https://docs.ag2.ai/latest/docs/user-guide/reference-agents/a2uiagent)
+- [Technical Deep Dive](https://docs.ag2.ai/latest/docs/blog/2026/03/20/AG2-A2UI/) — Building A2UI agents with AG2
+- [A2UIAgent + Flutter Example](https://github.com/ag2ai/build-with-ag2/tree/main/a2ui/flutter)
+
+---
+
+### Google's AI-Powered Products
+
+As Google adopts AI across the company, A2UI provides a **standardized way for AI agents to exchange user interfaces**, not just text — enabling multi-agent workflows where multiple agents contribute to the same surface, and where internal agents can be rapidly exposed externally.
+
+> "Much like A2A lets any agent talk to another agent regardless of platform, A2UI standardizes the user interface layer and supports remote agent use cases through an orchestrator. This has been incredibly powerful for internal teams, allowing them to rapidly develop agents where rich user interfaces are the norm, not the exception. As Google pushes further into generative UI, A2UI provides a perfect platform for server-driven UI that renders on any client."
+>
+> **— James Wren**, Senior Staff Engineer, AI Powered Google
+
+---
+
+## Community Projects
+
+### Open Source Examples
+
+- **[Restaurant Finder](https://github.com/a2ui-project/a2ui/tree/main/samples/agent/adk/restaurant_finder)** — Table reservation with dynamic forms, powered by a Gemini ADK agent. Full source available.
+- **[Component Gallery](https://github.com/a2ui-project/a2ui/tree/main/samples/client/angular)** — Interactive showcase of all A2UI components with live examples and code, built with the Angular renderer.
+
+### Third-Party Integrations
+
+- **[json-render](https://json-render.dev/docs/a2ui)** — Vercel's React library for rendering A2UI component catalogs via Zod schemas.
+- **[OpenClaw Canvas](https://docs.openclaw.ai/platforms/mac/canvas)** — Uses A2UI to render agent-generated UI on connected devices via its canvas system.
+
+---
+
+<Note>
+  Using A2UI in production? Share your story on [GitHub Discussions](https://github.com/a2ui-project/a2ui/discussions) — notable deployments are featured in the docs and release notes. See the [Roadmap](/roadmap) for upcoming milestones including v1.0 stability guarantees and a renderer certification program.
+</Note>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Quickstart Guide" icon="rocket" href="/quickstart">
+    Try the live demo and run your first A2UI agent in minutes.
+  </Card>
+  <Card title="Agent Development" icon="robot" href="/guides/agent-development">
+    Build an A2UI-enabled agent using ADK, AG2, or the Python SDK.
+  </Card>
+  <Card title="Client Setup" icon="plug" href="/guides/client-setup">
+    Integrate a renderer into your React, Angular, Lit, or Flutter application.
+  </Card>
+  <Card title="Join the Community" icon="users" href="/ecosystem/community">
+    Connect with contributors, share what you've built, and get help.
+  </Card>
+</CardGroup>

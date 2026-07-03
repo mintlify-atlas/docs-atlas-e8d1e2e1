@@ -1,0 +1,338 @@
+---
+title: "Authoring Custom A2UI Components and Catalogs"
+sidebarTitle: "Authoring Components"
+description: "Define a catalog schema, implement data-bound framework components, register them for agent invocation, and apply security best practices in production."
+---
+
+Custom components let you surface your own design system widgets — charts, maps, media players, or any proprietary UI element — inside A2UI without changing the protocol. Agents interact with your component through a JSON schema you define; your framework code decides how that schema is rendered. This guide walks through all four steps of the authoring lifecycle using the `rizzcharts` community sample as a concrete example.
+
+## What is a "Smart Wrapper"?
+
+A Smart Wrapper is a framework component that sits between the raw A2UI JSON payload and your underlying widget library. It receives typed, data-bound props resolved from the agent's data model, and it exposes an `action` callback that the Generic Binder wires to the agent automatically. You author the schema, the framework class extends a base provided by the renderer package (e.g. `DynamicComponent` in Angular, `A2uiLitElement` in Lit), and the renderer handles all the binding plumbing.
+
+Use a Smart Wrapper when:
+
+- You want **data-binding**: a property value should be read from the agent's live data model via `{ "path": "/some/key" }` rather than inlined as a literal.
+- You want **two-way binding**: your component can mutate the data model and the agent should observe the updated value.
+- You want **validation**: your component should call catalog-defined check functions and surface `isValid` / `validationErrors` to the agent before dispatching an action.
+
+Use a binderless component (React's `createBinderlessComponentImplementation` or equivalent) only when you need direct access to the raw `ComponentModel` — for example, a developer inspector or a performance-critical animation that manages its own reactivity.
+
+---
+
+## Step 1: Define the catalog schema
+
+The catalog schema is the API contract between the client and the agent. The agent uses it to construct valid UI payloads; the client uses it to validate incoming messages. Both sides must agree on the same schema — the client advertises which catalog IDs it supports and the agent selects a compatible one during the capability handshake.
+
+Define each component as a named object under a top-level `components` key in a JSON Schema file. The `rizzcharts` sample stores its schema at `catalog_schemas/0.9/rizzcharts_catalog_definition.json`. Here is the `Chart` component entry:
+
+```json
+"Chart": {
+  "type": "object",
+  "description": "An interactive chart that uses a hierarchical list of objects for its data.",
+  "properties": {
+    "type": {
+      "type": "string",
+      "description": "The type of chart to render.",
+      "enum": ["doughnut", "pie"]
+    },
+    "title": {
+      "type": "object",
+      "description": "The title of the chart. Can be a literal string or a data model path.",
+      "properties": {
+        "literalString": { "type": "string" },
+        "path":          { "type": "string" }
+      }
+    },
+    "chartData": {
+      "type": "object",
+      "description": "Chart data as a list of items. Can be a literal array or a data model path.",
+      "properties": {
+        "literalArray": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "label":     { "type": "string" },
+              "value":     { "type": "number" },
+              "drillDown": {
+                "type": "array",
+                "description": "Optional sub-items for the next level of data.",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "label": { "type": "string" },
+                    "value": { "type": "number" }
+                  },
+                  "required": ["label", "value"]
+                }
+              }
+            },
+            "required": ["label", "value"]
+          }
+        },
+        "path": { "type": "string" }
+      }
+    }
+  },
+  "required": ["type", "chartData"]
+}
+```
+
+<Note>
+  Properties that accept either a literal value or a data model path follow the A2UI bound-value pattern: an object with either a `literalString` / `literalArray` key or a `path` key. The renderer's binding layer resolves these transparently before your component code runs.
+</Note>
+
+For v0.9 web renderers, you can express the same contract in TypeScript using Zod and `CommonSchemas` from `@a2ui/web_core/v0_9`, which gives you compile-time safety and automatic two-way binding inference:
+
+```typescript
+import {z} from 'zod';
+import {CommonSchemas} from '@a2ui/web_core/v0_9';
+
+export const ChartApi = {
+  name: 'Chart',
+  schema: z.object({
+    type:      z.enum(['doughnut', 'pie']),
+    title:     CommonSchemas.DynamicString.optional(),
+    chartData: CommonSchemas.DynamicString, // resolved from path or literal
+  }),
+};
+```
+
+---
+
+## Step 2: Implement the component
+
+Implement the UI using your framework of choice. The key contract is: your component receives **already-resolved, typed props** — not raw JSON — because the renderer's binding layer has already walked the data model. The `rizzcharts` Angular implementation extends `DynamicComponent` from `@a2ui/angular`, which wires `resolvePrimitive` for any property that uses the bound-value shape:
+
+```typescript
+import {DynamicComponent} from '@a2ui/angular';
+import * as Primitives from '@a2ui/web_core/types/primitives';
+import * as Types from '@a2ui/web_core/types/types';
+import {Component, computed, input} from '@angular/core';
+
+@Component({
+  selector: 'a2ui-chart',
+  template: `
+    <div>
+      <h2>{{ resolvedTitle() }}</h2>
+      <canvas
+        baseChart
+        [data]="currentData()"
+        [type]="chartType()">
+      </canvas>
+    </div>
+  `,
+})
+export class Chart extends DynamicComponent<Types.CustomNode> {
+  // Each schema property becomes a required Angular input
+  readonly type = input.required<string>();
+  protected readonly chartType = computed(() => this.type() as ChartType);
+
+  // Optional properties use Primitives.StringValue so resolvePrimitive handles
+  // both { literalString: "..." } and { path: "/..." } transparently
+  readonly title = input<Primitives.StringValue | null>();
+  protected readonly resolvedTitle = computed(
+    () => super.resolvePrimitive(this.title() ?? null)
+  );
+
+  readonly chartData = input.required<Primitives.StringValue | null>();
+  // ... data resolution using super.resolvePrimitive for path lookups
+}
+```
+
+The same pattern in React uses `createComponentImplementation` with a Zod schema, and in Lit you extend `A2uiLitElement` and return an `A2uiController`. In all three cases the framework-specific boilerplate is minimal — `web_core` does the data-binding work.
+
+**Key implementation rules:**
+
+- **Always extend the renderer base class** (`DynamicComponent`, `A2uiLitElement`, etc.) — this gives you `resolvePrimitive` and automatic reactive updates when the data model changes.
+- **Map schema properties directly to framework inputs** — one input per schema property, typed to match the schema's bound-value shape.
+- **Never fetch or mutate external state directly from a component** — communicate back to the agent only through A2UI `action` primitives so the session state stays consistent.
+
+---
+
+## Step 3: Register the component in a catalog
+
+Once implemented, register your component by composing it into a `Catalog` object alongside the default catalog. This maps the string name used by agents to your class and its input bindings.
+
+<Tabs>
+  <Tab title="Angular">
+    ```typescript
+    import {Catalog, DEFAULT_CATALOG} from '@a2ui/angular';
+    import {inputBinding} from '@angular/core';
+
+    // Spread DEFAULT_CATALOG to keep all built-in components available,
+    // then add your custom entry under the exact name from your schema.
+    export const RIZZ_CHARTS_CATALOG = {
+      ...DEFAULT_CATALOG,
+      Chart: {
+        // Lazy-load the implementation to keep the initial bundle small
+        type: () => import('./chart').then(r => r.Chart),
+        bindings: ({properties}) => [
+          inputBinding(
+            'type',
+            () => ('type' in properties && properties['type']) || undefined,
+          ),
+          inputBinding(
+            'title',
+            () => ('title' in properties && properties['title']) || undefined,
+          ),
+          inputBinding(
+            'chartData',
+            () => ('chartData' in properties && properties['chartData']) || undefined,
+          ),
+        ],
+      },
+    } as Catalog;
+    ```
+  </Tab>
+  <Tab title="React">
+    ```typescript
+    import {Catalog, createFunctionImplementation} from '@a2ui/web_core/v0_9';
+    import {MyChart} from './chart';
+    import {basicCatalog} from '@a2ui/react/v0_9';
+
+    // Optional: a logic function the agent can call in validation checks
+    const isPositive = createFunctionImplementation(
+      {
+        name: 'is_positive',
+        returnType: 'boolean',
+        schema: z.object({value: z.number()}),
+      },
+      args => args.value > 0,
+    );
+
+    export const rizzChartsCatalog = new Catalog(
+      'https://example.com/catalogs/rizzcharts/v1.json',
+      [MyChart],    // ReactComponentImplementation list
+      [isPositive], // FunctionImplementation list
+    );
+
+    // Pass both catalogs to MessageProcessor so built-ins stay available
+    const processor = new MessageProcessor([basicCatalog, rizzChartsCatalog]);
+    ```
+  </Tab>
+  <Tab title="Lit">
+    ```typescript
+    import {Catalog} from '@a2ui/web_core/v0_9';
+    import {MessageProcessor} from '@a2ui/web_core/v0_9';
+    import {basicCatalog} from '@a2ui/lit/v0_9';
+    import {MyChart} from './my-chart'; // exports { ...MyChartApi, tagName: 'a2ui-chart' }
+
+    export const rizzChartsCatalog = new Catalog(
+      'https://example.com/catalogs/rizzcharts/v1.json',
+      [MyChart],
+    );
+
+    const processor = new MessageProcessor([basicCatalog, rizzChartsCatalog]);
+    ```
+  </Tab>
+</Tabs>
+
+<Tip>
+  The `catalogId` string in your `Catalog` constructor must exactly match the ID the agent requests in the `createSurface` message. Use a stable URL format (e.g. a versioned JSON schema URL) so catalog negotiation is deterministic across deployments.
+</Tip>
+
+---
+
+## Step 4: Invoke from the agent
+
+The agent side uses the A2UI Python SDK to resolve the catalog, inject examples into the model's context, and call `send_a2ui_json_to_client` with a payload that references your component by name.
+
+### 4.1 Session preparation
+
+The executor intercepts the incoming message, detects whether A2UI is enabled, resolves the catalog that the client advertised, and stores the schema and examples in session state:
+
+```python
+# agent_executor.py
+from a2ui.adk import try_activate_a2ui_extension
+
+use_ui = try_activate_a2ui_extension(context)
+if use_ui:
+    # Resolve catalog based on client capabilities
+    a2ui_catalog = self.schema_manager.get_selected_catalog(
+        client_ui_capabilities=capabilities
+    )
+    examples = self.schema_manager.load_examples(a2ui_catalog, validate=True)
+
+    # Persist to session state so the agent tool can read it
+    await runner.session_service.append_event(
+        session,
+        Event(
+            actions=EventActions(
+                state_delta={
+                    _A2UI_ENABLED_KEY: True,
+                    _A2UI_CATALOG_KEY: a2ui_catalog,
+                    _A2UI_EXAMPLES_KEY: examples,
+                }
+            ),
+        ),
+    )
+```
+
+### 4.2 Attach the toolset to the agent
+
+`SendA2uiToClientToolset` exposes a `send_a2ui_json_to_client` tool that the LLM can call to emit A2UI payloads:
+
+```python
+from a2ui.adk.send_a2ui_to_client_toolset import SendA2uiToClientToolset
+
+a2ui_catalog = self.schema_manager.get_selected_catalog(
+    client_ui_capabilities=capabilities
+)
+agent.tools = [
+    SendA2uiToClientToolset(
+        a2ui_catalog=a2ui_catalog,
+        a2ui_enabled=True,
+    )
+]
+```
+
+### 4.3 Wire the event converter
+
+Tool calls made by the LLM are intercepted by the `A2uiEventConverter`, which translates them into A2A `DataParts` carrying the A2UI payload — no manual JSON construction required:
+
+```python
+from a2ui.adk.a2a.event_converter import A2uiEventConverter
+
+config = A2aAgentExecutorConfig(event_converter=A2uiEventConverter())
+```
+
+---
+
+## Security considerations
+
+<Note>
+  The following section describes threats that apply to **all** custom component authors, not just the `rizzcharts` sample. Review it before shipping any catalog to production.
+</Note>
+
+Custom components extend the attack surface of your application because they render content generated by an external agent. Treat every value arriving from the agent as untrusted input, regardless of whether you control the agent.
+
+**Cross-site scripting (XSS)** — An agent could supply a crafted `path` value or literal string containing script fragments. Never pass agent-supplied strings directly to `innerHTML`, `dangerouslySetInnerHTML`, or equivalent APIs. Use your framework's text interpolation (which auto-escapes) or a well-maintained sanitization library.
+
+**Phishing / UI spoofing** — A malicious agent could render components that mimic login dialogs or payment forms. Validate that the `catalogId` presented in `createSurface` matches the one your client registered. Do not render components whose `catalogId` you did not explicitly trust.
+
+**Denial of service (DoS)** — Agents can send deeply nested component trees or large data models. Apply reasonable limits on tree depth, component count per surface, and data model size at the `MessageProcessor` layer before the data reaches your components.
+
+**Embedded content** — If any component renders an `<iframe>` or web view, apply a strict `sandbox` attribute and a `Content-Security-Policy` that blocks navigation and script execution from the embedded origin.
+
+**Developer responsibility** — A2UI renderers do not apply any sanitization on your behalf. Input validation, CSP headers, credential isolation, and sandboxing are your responsibility as the component author.
+
+---
+
+## Further reading
+
+<CardGroup cols={2}>
+  <Card title="Renderer Development" icon="wrench" href="/guides/renderer-development">
+    Build a new A2UI renderer for a web framework or non-web platform from scratch.
+  </Card>
+  <Card title="Catalog Reference" icon="book" href="/reference/catalogs">
+    Full specification of the catalog negotiation protocol and catalog schema format.
+  </Card>
+  <Card title="Data Binding Reference" icon="link" href="/reference/data-binding">
+    Path resolution rules, scope, template lists, and two-way binding semantics.
+  </Card>
+  <Card title="rizzcharts sample" icon="chart-pie" href="https://github.com/a2ui-project/a2ui/tree/main/samples/community/agent/adk/rizzcharts">
+    Complete end-to-end example: schema, Angular component, catalog registration, and Python executor.
+  </Card>
+</CardGroup>

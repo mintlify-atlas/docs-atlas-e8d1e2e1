@@ -1,0 +1,756 @@
+---
+title: "MCP and A2UI: Complete Integration Reference"
+sidebarTitle: "MCP Integration"
+description: "Serve A2UI interfaces over MCP, embed A2UI in sandboxed MCP Apps, and host MCP Apps inside A2UI surfaces — all patterns in one place."
+---
+
+The Model Context Protocol (MCP) and A2UI address complementary problems: MCP standardises how clients discover and call agent capabilities; A2UI standardises how agents describe rich, interactive user interfaces. Together they let a single MCP server deliver both the logic and the UI for an experience, with the client knowing exactly how to render each piece. This guide covers all three integration directions — serving A2UI from an MCP server, embedding A2UI renderers inside MCP Apps, and hosting sandboxed MCP Apps inside an A2UI surface.
+
+<CardGroup cols={2}>
+  <Card title="A2UI over MCP" icon="server" href="#a2ui-over-mcp">
+    Return A2UI JSON from MCP tools and resources so any A2UI-capable client can render rich UI.
+  </Card>
+  <Card title="A2UI in MCP Apps" icon="window" href="#a2ui-in-mcp-apps">
+    Use A2UI inside a sandboxed MCP App for consistent, agent-controlled UI styling.
+  </Card>
+  <Card title="MCP Apps in A2UI Surfaces" icon="layer-group" href="#mcp-apps-in-a2ui-surfaces">
+    Host third-party HTML-based MCP Apps securely inside an A2UI-rendered page.
+  </Card>
+  <Card title="Agent SDK" icon="code" href="/guides/agent-sdk">
+    Use the SDK for schema management, validation, and prompt generation in any of these patterns.
+  </Card>
+</CardGroup>
+
+---
+
+## A2UI over MCP
+
+An MCP server can deliver A2UI content through two mechanisms: **Resources** for static UI that does not depend on runtime parameters, and **Tools** for dynamic UI generated from conversational context or live data.
+
+In both cases the client identifies the payload by its MIME type — `application/a2ui+json` — and routes it to an A2UI renderer.
+
+<Note>
+  Regardless of whether a payload arrives as a direct Resource read or inside a Tool's `CallToolResult`, the MIME type must always be `application/a2ui+json`. This uniform identification allows client middleware to intercept and route both static and dynamic responses identically.
+</Note>
+
+### Quick start — run the sample
+
+The A2UI repository includes a ready-to-run MCP recipe demo:
+
+```bash
+# Clone the repo (if you haven't already)
+git clone https://github.com/a2ui-project/a2ui.git
+cd a2ui/samples/mcp/a2ui-over-mcp-recipe
+
+# Start the MCP server (SSE transport on port 8000)
+uv run .
+```
+
+<Tabs>
+  <Tab title="MCP Inspector">
+    In a separate terminal, launch the [MCP Inspector](https://github.com/modelcontextprotocol/inspector):
+
+    ```bash
+    npx @modelcontextprotocol/inspector
+    ```
+
+    1. Set **Transport Type** to `SSE`
+    2. Connect to `http://localhost:8000/sse`
+    3. Click **List Resources** → you will see the "Recipe Form" resource
+    4. Read `a2ui://recipe-form` → the content is the A2UI JSON for a static selection form
+    5. Click **List Tools** → you will see `get_recipe_a2ui`
+    6. Run the tool → the response contains A2UI JSON that renders a dynamic recipe card
+  </Tab>
+  <Tab title="Web App Client">
+    For a fully rendered interactive experience, run the included web application. The A2UI repository uses Yarn workspaces for its built-in samples — for standalone projects outside the repository, use any package manager (npm, pnpm, etc.):
+
+    ```bash
+    cd client
+    yarn install
+    yarn dev
+    ```
+
+    Open the URL shown in the terminal (usually `http://localhost:5173`). You will see a dual-column interface: the left column renders the static form from the MCP Resource; picking options and clicking **Get Recipe** calls the MCP Tool and renders the dynamic recipe card on the right.
+  </Tab>
+</Tabs>
+
+---
+
+### Resources vs. Tools
+
+| | MCP Resource (`resources/read`) | MCP Tool (`tools/call`) |
+|---|---|---|
+| **Best for** | Static forms, settings screens, stable layouts | Dynamic content driven by user input, live data, or conversation history |
+| **Trigger** | Client reads a URI (e.g., `a2ui://recipe-form`) | Client or agent calls a named tool with arguments |
+| **Overhead** | Minimal — no LLM call required | Higher — the server generates content at call time |
+| **Wrapping** | Raw `ResourceContents` with `mimeType` | `EmbeddedResource` inside `CallToolResult` |
+
+### Serving static UI via Resources
+
+```python
+from mcp import types
+from mcp.types import ReadResourceContents
+import json
+
+@app.list_resources()
+async def list_resources() -> list[types.Resource]:
+    return [
+        types.Resource(
+            uri="a2ui://recipe-form",
+            name="Recipe Form",
+            mimeType="application/a2ui+json",
+            description="Static form allowing users to pick options.",
+        )
+    ]
+
+@app.read_resource()
+async def read_resource(uri: str) -> list[ReadResourceContents]:
+    if uri == "a2ui://recipe-form":
+        return [
+            ReadResourceContents(
+                content=json.dumps(recipe_form_json),
+                mime_type="application/a2ui+json",
+            )
+        ]
+    raise ValueError(f"Unknown resource: {uri}")
+```
+
+### Serving dynamic UI via Tools
+
+Always include a `TextContent` fallback alongside the `EmbeddedResource` — clients that do not support A2UI will display the text rather than dropping the response silently.
+
+```python
+import copy
+from typing import Any
+from mcp import types
+
+@app.call_tool()
+async def handle_call_tool(
+    name: str, arguments: dict[str, Any]
+) -> types.CallToolResult:
+    if name == "get_recipe_a2ui":
+        # Resolve dynamic selections from client parameters
+        style = arguments.get("cookingStyle", "Baked")
+        protein = arguments.get("protein", "Salmon")
+
+        # Retrieve customized recipe data
+        recipe_data = RECIPES.get((style, protein))
+
+        # Customize the base A2UI schema dynamically
+        custom_recipe_json = copy.deepcopy(recipe_a2ui_json)
+        custom_recipe_json[1]["updateComponents"]["components"][0]["text"] = (
+            recipe_data["title"]
+        )
+
+        # Return the customized recipe card as an EmbeddedResource
+        return types.CallToolResult(content=[
+            types.EmbeddedResource(
+                type="resource",
+                resource=types.TextResourceContents(
+                    uri="a2ui://recipe-card",
+                    mimeType="application/a2ui+json",
+                    text=json.dumps(custom_recipe_json),
+                )
+            )
+        ])
+```
+
+---
+
+### Catalog Negotiation
+
+Before a server can send A2UI to a client, they must agree on which component catalogs are supported. There are two approaches depending on whether your server is stateful or stateless.
+
+<Tabs>
+  <Tab title="During Initialization (Recommended)">
+    MCP is a stateful session protocol. Declare A2UI support once during connection setup — the server stores the capabilities for the entire session:
+
+    ```json
+    {
+      "jsonrpc": "2.0",
+      "method": "initialize",
+      "id": "init-123",
+      "params": {
+        "protocolVersion": "2025-11-25",
+        "clientInfo": {
+          "name": "a2ui-enabled-client",
+          "version": "1.0.0"
+        },
+        "capabilities": {
+          "a2ui": {
+            "clientCapabilities": {
+              "v0.9": {
+                "supportedCatalogIds": [
+                  "https://a2ui.org/specification/v0_9/catalogs/basic/catalog.json"
+                ]
+              }
+            }
+          }
+        }
+      }
+    }
+    ```
+  </Tab>
+  <Tab title="Per-Message Metadata (Stateless Servers)">
+    For stateless servers, pass A2UI capabilities in the `_meta` field of every tool call:
+
+    ```json
+    {
+      "jsonrpc": "2.0",
+      "method": "tools/call",
+      "id": "id-123",
+      "params": {
+        "name": "generate_report",
+        "arguments": {"date": "2026-03-01"},
+        "_meta": {
+          "a2ui": {
+            "clientCapabilities": {
+              "v0.9": {
+                "supportedCatalogIds": [
+                  "https://a2ui.org/specification/v0_9/catalogs/basic/catalog.json"
+                ],
+                "inlineCatalogs": []
+              }
+            }
+          }
+        }
+      }
+    }
+    ```
+  </Tab>
+</Tabs>
+
+---
+
+### Handling User Actions
+
+Interactive A2UI components route user interactions back to the server as MCP tool calls.
+
+<Steps>
+  <Step title="Define a button with an action">
+    In your A2UI JSON, attach an `action` object to any interactive component. The `context` maps human-readable keys to JSON Pointer data-binding paths:
+
+    ```json
+    {
+      "id": "confirm-button",
+      "component": {
+        "Button": {
+          "child": "confirm-button-text",
+          "action": {
+            "event": {
+              "name": "confirm_booking",
+              "context": {
+                "start": "/dates/start",
+                "end": "/dates/end"
+              }
+            }
+          }
+        }
+      }
+    }
+    ```
+  </Step>
+  <Step title="Client sends the action as a tool call">
+    When the user clicks the button, the client resolves the data bindings against the current surface state and sends a standard MCP `tools/call`:
+
+    ```json
+    {
+      "jsonrpc": "2.0",
+      "method": "tools/call",
+      "id": "id-456",
+      "params": {
+        "name": "action",
+        "arguments": {
+          "name": "confirm_booking",
+          "context": {
+            "start": "2026-03-20",
+            "end": "2026-03-25"
+          }
+        }
+      }
+    }
+    ```
+  </Step>
+  <Step title="Handle the action on the server">
+    ```python
+    @self.tool()
+    async def action(name: str, context: dict) -> types.CallToolResult:
+        """Handle A2UI user actions."""
+        if name == "confirm_booking":
+            # Process the booking, then return confirmation UI
+            return types.CallToolResult(content=[
+                types.TextContent(
+                    type="text",
+                    text=f"Booking confirmed: {context['start']} to {context['end']}"
+                )
+            ])
+        raise ValueError(f"Unknown action: {name}")
+    ```
+  </Step>
+</Steps>
+
+---
+
+### Error Handling
+
+Clients can report A2UI rendering errors back to the server via a dedicated tool call, giving the server a chance to log the error, retry, or send a fallback UI:
+
+```json
+{
+  "jsonrpc": "2.0",
+  "method": "tools/call",
+  "id": "id-789",
+  "params": {
+    "name": "error",
+    "arguments": {
+      "code": "INVALID_JSON",
+      "message": "Failed to parse A2UI payload.",
+      "surfaceId": "default"
+    }
+  }
+}
+```
+
+```python
+@self.tool()
+async def error(
+    code: str, message: str, surfaceId: str = ""
+) -> types.CallToolResult:
+    """Handle A2UI client errors."""
+    # Log, retry, or send a fallback UI
+    return types.CallToolResult(content=[
+        types.TextContent(
+            type="text",
+            text=f"Acknowledged error {code}: {message}"
+        )
+    ])
+```
+
+---
+
+### Verbalization and Visibility Control
+
+MCP Resource Annotations control whether the LLM can "read" A2UI payloads in subsequent turns:
+
+```python
+a2ui_resource = types.EmbeddedResource(
+    type="resource",
+    resource=types.TextResourceContents(
+        uri="a2ui://training-plan-page",
+        mimeType="application/a2ui+json",
+        text=json.dumps(a2ui_payload)
+    ),
+    # Show the UI to the user, but hide the raw JSON from the LLM
+    annotations=types.Annotations(audience=["user"])
+)
+```
+
+| Audience | Behavior |
+|---|---|
+| *(empty)* | Visible to both user and LLM |
+| `["user"]` | Rendered for the user; hidden from LLM context |
+| `["assistant"]` | Available to LLM for follow-up reasoning; not rendered for the user |
+
+---
+
+### Using the Agent SDK for Validation
+
+For production deployments, the A2UI Agent SDK handles schema management, validation, and prompt generation:
+
+```bash
+pip install a2ui-agent-sdk
+```
+
+```python
+from a2ui.schema.manager import A2uiSchemaManager
+from a2ui.basic_catalog.provider import BasicCatalog
+
+schema_manager = A2uiSchemaManager(
+    catalogs=[BasicCatalog.get_config()],
+)
+
+# Validate A2UI output before sending to the client
+selected_catalog = schema_manager.get_selected_catalog()
+selected_catalog.validator.validate(a2ui_payload)
+```
+
+---
+
+## A2UI in MCP Apps
+
+MCP Apps are sandboxed web applications that an MCP server delivers to a host client. By including the A2UI SDK inside your MCP App bundle, you can have those sandboxed applications render agent-generated UI with the same fidelity and consistency as a native A2UI surface.
+
+### Architecture
+
+Three actors collaborate through a layered communication chain:
+
+```
+┌─────────────────────────────────────────┐
+│         MCP Server                      │
+│  (serves app resources + tool handlers) │
+└────────────────┬────────────────────────┘
+                 │ MCP Protocol (SSE / stdio)
+┌────────────────▼────────────────────────┐
+│         Client Host Application         │
+│  (outer container, connects to server)  │
+└────────────────┬────────────────────────┘
+                 │ postMessage bridge
+┌────────────────▼────────────────────────┐
+│  MCP App (double-iframe sandbox)        │
+│  ┌──────────────────────────────────┐   │
+│  │  Web App (e.g., editor panel)   │   │
+│  │  + A2UI Surface                 │   │
+│  │  + App Bridge                   │   │
+│  └──────────────────────────────────┘   │
+└─────────────────────────────────────────┘
+```
+
+The MCP App renders A2UI payloads directly inside its sandbox. The host never needs to understand A2UI — it only relays JSON-RPC messages between the sandbox and the MCP server.
+
+### Loading A2UI components in your MCP App
+
+<Steps>
+  <Step title="Inline your app bundle">
+    MCP Apps are delivered as a single HTML resource from the MCP Server. Build your application and use a post-build script or a Vite plugin to inline all JavaScript and CSS into a single self-contained file:
+
+    ```bash
+    npm install -D vite-plugin-singlefile
+    ```
+
+    ```typescript
+    // vite.config.ts
+    import { defineConfig } from 'vite';
+    import { viteSingleFile } from 'vite-plugin-singlefile';
+
+    export default defineConfig({
+      plugins: [viteSingleFile()],
+    });
+    ```
+  </Step>
+  <Step title="Fetch A2UI data via the host bridge">
+    Inside your inlined app, use JSON-RPC over `postMessage` to request A2UI payloads from the MCP Server:
+
+    ```typescript
+    // Request A2UI data from the Host (which relays to the MCP Server)
+    const result = await callHostMethod('ui/fetch_counter_a2ui');
+
+    // Find the A2UI resource in the response
+    const a2uiResource = result.find(
+      c =>
+        c.type === 'resource' &&
+        (c.resource?.mimeType === 'application/a2ui+json' ||
+         c.resource?.mimeType === 'application/json+a2ui'),
+    );
+
+    if (a2uiResource?.resource?.text) {
+      const messages = JSON.parse(a2uiResource.resource.text);
+      this.processor.processMessages(messages);
+    }
+
+    // Utility: JSON-RPC over postMessage
+    function callHostMethod(method: string, params: any = {}): Promise<any> {
+      return new Promise((resolve, reject) => {
+        const requestId = `${method}-${Date.now()}`;
+
+        const handler = (event: MessageEvent) => {
+          if (event.data.id !== requestId) return;
+          window.removeEventListener('message', handler);
+          if (event.data.error) reject(event.data.error);
+          else resolve(event.data.result);
+        };
+
+        window.addEventListener('message', handler);
+        window.parent.postMessage(
+          { jsonrpc: '2.0', id: requestId, method, params },
+          '*', // Replace with explicit origin in production
+        );
+      });
+    }
+    ```
+  </Step>
+  <Step title="Handle A2UI user actions">
+    Subscribe to the A2UI `MessageProcessor` event stream and forward user actions back through the host to the MCP Server:
+
+    ```typescript
+    this.processor.events.subscribe(async event => {
+      if (!event.message.userAction) return;
+
+      const method = `ui/${event.message.userAction.name}`;
+      const params = event.message.userAction.context;
+
+      try {
+        // Forward the action to the MCP Server via the Host
+        const result = await callHostMethod(method, params);
+
+        // Apply the updated A2UI payload from the server response
+        const messages = extractA2UIMessages(result);
+        if (messages) {
+          this.processor.processMessages(messages);
+        }
+      } catch (error) {
+        console.error(`Error handling user action [${method}]:`, error);
+      }
+    });
+    ```
+  </Step>
+</Steps>
+
+### Inlined MCP App HTML structure
+
+The following pseudocode shows the structure of a compiled, inlined MCP Application that initialises the App Bridge, fetches its initial A2UI layout, and handles interactive events:
+
+```html
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Inlined MCP App Surface</title>
+    <!-- A2UI SDK is bundled inline -->
+  </head>
+  <body>
+    <div>
+      <h3>MCP App (Editor Panel)</h3>
+      <!-- A2UI Surface custom element provided by the A2UI SDK -->
+      <a2ui-surface surfaceId="recipe-card"></a2ui-surface>
+    </div>
+
+    <script>
+      const bridge = new AppBridge({ name: 'editor-panel', version: '1.0.0' });
+
+      function processA2UIResponse(result) {
+        const a2uiResource = result?.content?.find(
+          c =>
+            c.type === 'resource' &&
+            (c.resource?.mimeType === 'application/a2ui+json' ||
+             c.resource?.mimeType === 'application/json+a2ui'),
+        );
+        if (a2uiResource?.resource?.text) {
+          const payload = JSON.parse(a2uiResource.resource.text);
+          window.a2uiProcessor.processMessages(payload);
+        }
+      }
+
+      async function initApp() {
+        await bridge.connect();
+        const result = await bridge.callServerTool({
+          name: 'fetch_controls',
+          arguments: {},
+        });
+        processA2UIResponse(result);
+      }
+
+      window.a2uiProcessor.events.subscribe(async event => {
+        if (!event.message.userAction) return;
+        const action = event.message.userAction;
+
+        const result = await bridge.callServerTool({
+          name: action.name,
+          arguments: action.context,
+        });
+        processA2UIResponse(result);
+      });
+
+      initApp();
+    </script>
+  </body>
+</html>
+```
+
+<Warning>
+  Always replace the `'*'` target origin in `postMessage` calls with an explicit host origin in production. Inside a `sandbox="allow-scripts"` iframe without `allow-same-origin`, `window.location.origin` evaluates to `"null"` — validate incoming messages by comparing `event.source` against `window.parent` instead.
+</Warning>
+
+---
+
+## MCP Apps in A2UI Surfaces
+
+This pattern is the inverse of the previous one: instead of an MCP App that contains A2UI, here A2UI is the outer surface and it hosts untrusted MCP Apps as sandboxed widgets alongside native A2UI components.
+
+### The double-iframe isolation model
+
+Running untrusted third-party HTML inside a host application requires strict isolation. A2UI uses a **double-iframe** pattern to achieve this without compromising the host application:
+
+```
+Host Application
+└── Sandbox Proxy (sandbox.html) — same-origin iframe, no sandbox restriction
+    └── Embedded App (inner iframe) — srcdoc injection
+        sandbox="allow-scripts allow-forms allow-popups allow-modals"
+        (MUST NOT include allow-same-origin)
+```
+
+<Accordion title="Why two iframes?">
+  A single iframe with `allow-scripts` and `allow-same-origin` can escape its sandbox — the app can programmatically interact with the parent DOM or remove its own sandbox attribute. By strictly omitting `allow-same-origin` from the inner iframe, A2UI prevents all DOM-level escape vectors. The inner iframe gets a unique opaque origin, losing access to `localStorage`, `sessionStorage`, `IndexedDB`, and cookies. All communication happens exclusively through the structured JSON-RPC postMessage channel.
+</Accordion>
+
+### Security guarantees
+
+| Constraint | Effect |
+|---|---|
+| No `allow-same-origin` | Inner app cannot access host DOM or storage |
+| Unique opaque origin | Cookies, IndexedDB, and Web Storage are isolated per app instance |
+| Explicit source validation | Incoming messages are validated against `window.parent`, not by origin string (which is `"null"` in the sandbox) |
+| No direct sibling access | Sandboxed components cannot communicate directly with native A2UI siblings — all state flows through the host shell |
+
+### Registering the `McpApp` component
+
+The `McpApp` component is a `custom` node in your A2UI catalog. Register it in your client application before rendering:
+
+```typescript
+import { Catalog } from '@a2ui/web_core/v0_9';
+import { z } from 'zod';
+import { McpApp } from './mcp-app';
+import { Button } from './button';
+import { Snackbar } from './snackbar';
+
+const McpAppSchema = z.object({
+  content: z.union([z.string(), z.object({ id: z.string() })]).optional(),
+  allowedTools: z.array(z.string()).optional(),
+  title: z.string().optional(),
+});
+
+export const DEMO_CATALOG = new Catalog(
+  'my_app.org/some_catalog.json',
+  [
+    { name: 'McpApp', component: McpApp, schema: McpAppSchema },
+    {
+      name: 'Button',
+      component: Button,
+      schema: z.object({ label: z.string(), action: z.any().optional() }),
+    },
+    {
+      name: 'Snackbar',
+      component: Snackbar,
+      schema: z.object({ message: z.string(), durationMs: z.number().default(3000) }),
+    },
+  ]
+);
+```
+
+### Using the `McpApp` component in A2UI messages
+
+An agent or server sends a standard A2UI message that references `McpApp` as a `custom` component:
+
+```json
+{
+  "type": "custom",
+  "name": "McpApp",
+  "properties": {
+    "content": "<h1>Hello, World!</h1>",
+    "title": "My MCP App"
+  }
+}
+```
+
+For complex content that requires encoding:
+
+```json
+{
+  "type": "custom",
+  "name": "McpApp",
+  "properties": {
+    "content": "url_encoded:%3Ch1%3EHello%2C%20World!%3C%2Fh1%3E",
+    "title": "My MCP App"
+  }
+}
+```
+
+### How the sibling update loop works
+
+When a sandboxed MCP App needs to update state shared with native A2UI components (such as a scoreboard alongside a Pong game), the update must flow through the host shell rather than directly between siblings:
+
+<Steps>
+  <Step title="Initialize postMessage bridge">
+    The host shell instantiates the double-iframe sandbox and establishes a secure message relay bridge with the `McpApp` component.
+  </Step>
+  <Step title="Tool action request">
+    When the user interacts inside the sandboxed app, the app triggers a tool action by posting a JSON-RPC message over the bridge.
+  </Step>
+  <Step title="Action delegation">
+    The host layout engine intercepts the action and delegates it to the A2UI backend agent over the A2A protocol. The agent may also coordinate with the MCP App Server if needed.
+  </Step>
+  <Step title="State mutation and sync">
+    The agent processes the action, mutates the session state, and pushes a `dataModelUpdate` back to the host state manager.
+  </Step>
+  <Step title="Reactive update">
+    The host updates its local store, triggering reactive updates on any A2UI sibling components bound to the changed state path. The sandboxed app itself never has direct access to sibling state.
+  </Step>
+</Steps>
+
+### Running the sample apps
+
+The A2UI repository includes two sample applications that demonstrate this pattern.
+
+<Accordion title="Sample 1: MCP App Standalone (Lit + ADK)">
+  **Terminal 1 — start the agent:**
+  ```bash
+  cd samples/agent/adk/mcp-apps-in-a2ui-sample
+  uv run agent.py
+  # Agent available at http://localhost:8000
+  ```
+
+  **Terminal 2 — start the client:**
+  ```bash
+  cd samples/client/lit/mcp-apps-in-a2ui-sample
+  yarn install
+  yarn dev
+  # Client available at http://localhost:5173
+  ```
+
+  Open `http://localhost:5173`. Clicking **Call Agent Tool** inside the sandboxed iframe triggers an action handled by the ADK agent.
+</Accordion>
+
+<Accordion title="Sample 2: Calculator + Pong (Angular + MCP Server + Proxy Agent)">
+  This sample requires three concurrent processes.
+
+  **Terminal 1 — MCP server:**
+  ```bash
+  cd samples/community/mcp/mcp-apps-calculator/
+  uv run .
+  # Starts on http://localhost:8000
+  ```
+
+  **Terminal 2 — proxy agent:**
+  ```bash
+  cd samples/community/agent/adk/mcp_app_proxy/
+  export GEMINI_API_KEY="your-key"
+  uv run .
+  # Starts on http://localhost:10006
+  ```
+
+  **Terminal 3 — Angular client:**
+  ```bash
+  # From repository root, build renderer packages first
+  yarn build:all
+
+  cd samples/community/client/angular/
+  yarn install
+  yarn start mcp_calculator
+  # Client available at http://localhost:4200
+  ```
+
+  Navigate to `http://localhost:4200/?disable_security_self_test=true`. Use the smart chips to load the Calculator or Pong app in their sandboxed iframes.
+</Accordion>
+
+### Troubleshooting
+
+| Problem | Solution |
+|---|---|
+| `GEMINI_API_KEY` not set | Export the key or create a `.env` file in the agent directory |
+| `yarn build:renderer` fails | Run `yarn install` first in `samples/client/lit/` |
+| Angular client shows a blank page | Ensure you ran `yarn build:all` at the repo root before starting |
+| MCP app iframe does not load | Confirm both the MCP server (port 8000) and proxy agent (port 10006) are running |
+| Security self-test fails in dev | Append `?disable_security_self_test=true` to the URL |
+| `ng serve` not found | Run `yarn install` to install dev dependencies including `@angular/cli` |
+
+---
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Agent Development Guide" icon="robot" href="/guides/agent-development">
+    Build a full restaurant-finder agent that generates A2UI JSON using ADK and the Agent SDK.
+  </Card>
+  <Card title="Agent SDK Architecture" icon="layer-group" href="/guides/agent-sdk">
+    Understand the SDK's streaming parser, validator, and catalog system in depth.
+  </Card>
+</CardGroup>

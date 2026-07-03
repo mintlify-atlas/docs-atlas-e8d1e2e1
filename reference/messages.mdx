@@ -1,0 +1,580 @@
+---
+title: "A2UI Message Types: Full Schema Reference"
+sidebarTitle: "Messages"
+description: "Complete reference for all A2UI message types—createSurface, updateComponents, updateDataModel, and deleteSurface—with schemas, properties, and streaming examples."
+---
+
+A2UI communicates through a small set of typed JSON messages sent as **JSON Lines (JSONL)**, where each newline-delimited object is exactly one message. Agents stream these messages to clients over any supported transport. The v0.9 protocol adds a top-level `"version"` field to every message and flattens the component object format; v0.8 messages use a nested wrapper style and end with a `beginRendering` signal.
+
+<Tabs>
+  <Tab title="v0.9 (Current)">
+    All v0.9 messages include `"version": "v0.9"` as their first field. The four core message types are:
+
+    | Message | Purpose |
+    |---------|---------|
+    | `createSurface` | Initialize a surface and declare its catalog |
+    | `updateComponents` | Add or replace components in flat adjacency-list format |
+    | `updateDataModel` | Write a value to a JSON Pointer path in the data model |
+    | `deleteSurface` | Tear down a surface and free all associated state |
+  </Tab>
+  <Tab title="v1.0 (Candidate)">
+    v1.0 includes all four v0.9 messages plus `actionResponse`, which lets the agent reply directly to a user-triggered action event without starting a new conversation turn.
+  </Tab>
+  <Tab title="v0.8 (Legacy)">
+    v0.8 omits the `version` field. Rendering is triggered by a dedicated `beginRendering` message sent **after** component and data messages have been buffered:
+
+    | Message | Purpose |
+    |---------|---------|
+    | `surfaceUpdate` | Add or update components using the nested wrapper format |
+    | `dataModelUpdate` | Write data using a typed key/value adjacency list |
+    | `beginRendering` | Signal the client to start rendering the buffered surface |
+    | `deleteSurface` | Remove a surface |
+  </Tab>
+</Tabs>
+
+---
+
+## createSurface / beginRendering
+
+Initializes a new rendering surface and declares which component catalog the agent will use for the lifetime of that surface.
+
+<Tabs>
+  <Tab title="v0.9 — createSurface">
+
+    ### TypeScript Schema
+
+    ```typescript
+    {
+      version: "v0.9";
+      createSurface: {
+        surfaceId: string;       // Required: unique surface identifier
+        catalogId: string;       // Required: URL of the component catalog
+        theme?: object;          // Optional: theme configuration
+        sendDataModel?: boolean; // Optional: request client to echo data model changes
+      }
+    }
+    ```
+
+    ### Properties
+
+    <ParamField body="version" type="string" required>
+      Must be `"v0.9"`. Identifies the protocol version for this message.
+    </ParamField>
+
+    <ParamField body="createSurface.surfaceId" type="string" required>
+      A unique identifier for this surface. Must not conflict with any currently active surface in the renderer.
+    </ParamField>
+
+    <ParamField body="createSurface.catalogId" type="string" required>
+      URI of the catalog JSON Schema that defines the components the agent will use. The client must have this catalog available at render time — no runtime download occurs.
+    </ParamField>
+
+    <ParamField body="createSurface.theme" type="object">
+      Optional theme configuration (e.g., `primaryColor`, `fontFamily`) as defined by the catalog's `theme` schema.
+    </ParamField>
+
+    <ParamField body="createSurface.sendDataModel" type="boolean">
+      If `true`, the client sends data model change events back to the agent whenever user input updates the model.
+    </ParamField>
+
+    ### JSON Example
+
+    ```json
+    {
+      "version": "v0.9",
+      "createSurface": {
+        "surfaceId": "booking",
+        "catalogId": "https://a2ui.org/specification/v0_9_1/catalogs/basic/catalog.json"
+      }
+    }
+    ```
+
+    <Note>
+      In v0.9 the root component is identified by convention: one component in the subsequent `updateComponents` message must carry `"id": "root"`. There is no separate `root` field in `createSurface`.
+    </Note>
+
+  </Tab>
+  <Tab title="v0.8 — beginRendering">
+
+    ### TypeScript Schema
+
+    ```typescript
+    {
+      beginRendering: {
+        surfaceId: string;   // Required: unique surface identifier
+        root: string;        // Required: ID of the root component
+        catalogId?: string;  // Optional: URL of the component catalog
+        styles?: object;     // Optional: surface-level styling
+      }
+    }
+    ```
+
+    ### Properties
+
+    <ParamField body="beginRendering.surfaceId" type="string" required>
+      Unique identifier for this surface.
+    </ParamField>
+
+    <ParamField body="beginRendering.root" type="string" required>
+      The `id` of the component that serves as the root of the UI tree. This component must have been sent in a preceding `surfaceUpdate` message.
+    </ParamField>
+
+    <ParamField body="beginRendering.catalogId" type="string">
+      Catalog URL. Defaults to the v0.8 basic catalog when omitted.
+    </ParamField>
+
+    <ParamField body="beginRendering.styles" type="object">
+      Surface-level styling as defined by the catalog.
+    </ParamField>
+
+    ### JSON Example
+
+    ```json
+    {
+      "beginRendering": {
+        "surfaceId": "booking",
+        "root": "root-component"
+      }
+    }
+    ```
+
+    <Tip>
+      Send `beginRendering` **after** all `surfaceUpdate` and `dataModelUpdate` messages for the initial render. The client buffers those earlier messages and only processes them once `beginRendering` arrives.
+    </Tip>
+
+  </Tab>
+</Tabs>
+
+---
+
+## updateComponents / surfaceUpdate
+
+Adds or replaces components within a surface. Re-sending a component with an existing `id` is an update, not a duplicate.
+
+<Tabs>
+  <Tab title="v0.9 — updateComponents">
+
+    ### TypeScript Schema
+
+    ```typescript
+    {
+      version: "v0.9";
+      updateComponents: {
+        surfaceId: string;
+        components: Array<{
+          id: string;         // Required: unique component ID within the surface
+          component: string;  // Required: component type name, e.g. "Text"
+          [key: string]: any; // Component-specific properties are flat on this object
+        }>;
+      }
+    }
+    ```
+
+    ### Properties
+
+    <ParamField body="updateComponents.surfaceId" type="string" required>
+      The `surfaceId` of the surface to update. Must have been created with `createSurface`.
+    </ParamField>
+
+    <ParamField body="updateComponents.components" type="array" required>
+      Array of component definition objects. Each entry carries `id`, `component`, and all component-specific properties at the top level (flat format).
+    </ParamField>
+
+    <ParamField body="updateComponents.components[].id" type="string" required>
+      Unique identifier for this component within the surface. Sending a duplicate ID overwrites the existing component.
+    </ParamField>
+
+    <ParamField body="updateComponents.components[].component" type="string" required>
+      The component type name as defined in the negotiated catalog (e.g., `"Text"`, `"Button"`, `"Column"`).
+    </ParamField>
+
+    ### JSON Example
+
+    ```json
+    {
+      "version": "v0.9",
+      "updateComponents": {
+        "surfaceId": "booking",
+        "components": [
+          {
+            "id": "root",
+            "component": "Column",
+            "children": ["header", "guests-field", "submit-btn"]
+          },
+          {
+            "id": "header",
+            "component": "Text",
+            "text": "Confirm Reservation",
+            "variant": "h1"
+          },
+          {
+            "id": "guests-field",
+            "component": "TextField",
+            "label": "Number of Guests",
+            "value": { "path": "/reservation/guests" },
+            "textFieldType": "number"
+          },
+          {
+            "id": "submit-btn",
+            "component": "Button",
+            "child": "submit-label",
+            "variant": "primary",
+            "action": { "event": { "name": "confirm" } }
+          },
+          {
+            "id": "submit-label",
+            "component": "Text",
+            "text": "Book Table"
+          }
+        ]
+      }
+    }
+    ```
+
+  </Tab>
+  <Tab title="v0.8 — surfaceUpdate">
+
+    ### TypeScript Schema
+
+    ```typescript
+    {
+      surfaceUpdate: {
+        surfaceId: string;
+        components: Array<{
+          id: string;
+          component: {
+            [ComponentType: string]: {
+              // Component-specific properties nested under the type key
+              [key: string]: any;
+            }
+          }
+        }>;
+      }
+    }
+    ```
+
+    ### Properties
+
+    <ParamField body="surfaceUpdate.surfaceId" type="string" required>
+      ID of the surface to update. Surfaces are implicit in v0.8 — no prior `createSurface` call is required.
+    </ParamField>
+
+    <ParamField body="surfaceUpdate.components" type="array" required>
+      Array of component objects. Each entry has `id` and a `component` wrapper object whose single key is the component type.
+    </ParamField>
+
+    <ParamField body="surfaceUpdate.components[].id" type="string" required>
+      Unique component identifier within the surface.
+    </ParamField>
+
+    <ParamField body="surfaceUpdate.components[].component" type="object" required>
+      Wrapper object with exactly one key (the component type). Component properties live inside that nested object.
+    </ParamField>
+
+    ### JSON Example
+
+    ```json
+    {
+      "surfaceUpdate": {
+        "surfaceId": "booking",
+        "components": [
+          {
+            "id": "root",
+            "component": {
+              "Column": {
+                "children": { "explicitList": ["header", "guests-field", "submit-btn"] }
+              }
+            }
+          },
+          {
+            "id": "header",
+            "component": {
+              "Text": {
+                "text": { "literalString": "Confirm Reservation" },
+                "usageHint": "h1"
+              }
+            }
+          },
+          {
+            "id": "guests-field",
+            "component": {
+              "TextField": {
+                "label": { "literalString": "Number of Guests" },
+                "text": { "path": "/reservation/guests" },
+                "textFieldType": "number"
+              }
+            }
+          }
+        ]
+      }
+    }
+    ```
+
+  </Tab>
+</Tabs>
+
+### Common Errors
+
+| Error | Cause | Solution |
+|-------|-------|---------|
+| Surface already exists | `surfaceId` is already active | Use a globally unique ID; an orchestrator should manage surface IDs across subagents |
+| Surface not found | `surfaceId` does not match a created surface | Ensure `createSurface` was sent first (v0.9) or that the ID matches an implicit v0.8 surface |
+| Invalid component type | Unknown component name for the negotiated catalog | Verify the type name against the catalog schema |
+| Invalid property | Property not declared for this component type | Check the catalog definition |
+| Circular reference | A component references itself as a child | Restructure the component hierarchy |
+
+---
+
+## updateDataModel / dataModelUpdate
+
+Updates the per-surface data model that components bind to via JSON Pointer paths. Any component whose bound path is affected automatically re-renders.
+
+<Tabs>
+  <Tab title="v0.9 — updateDataModel">
+
+    ### TypeScript Schema
+
+    ```typescript
+    {
+      version: "v0.9";
+      updateDataModel: {
+        surfaceId: string;  // Required: target surface
+        path?: string;      // Optional: JSON Pointer path; defaults to "/"
+        value?: any;        // Optional: value to set; omit to delete the key
+      }
+    }
+    ```
+
+    ### Properties
+
+    <ParamField body="updateDataModel.surfaceId" type="string" required>
+      ID of the surface whose data model should be updated.
+    </ParamField>
+
+    <ParamField body="updateDataModel.path" type="string">
+      A [RFC 6901](https://tools.ietf.org/html/rfc6901) JSON Pointer path such as `/user/email` or `/cart/items/0`. Defaults to `"/"` (root) if omitted.
+    </ParamField>
+
+    <ParamField body="updateDataModel.value" type="any">
+      The value to write at `path`. Can be any JSON type — string, number, boolean, object, array, or null. Omit the field entirely to delete the key at `path`.
+    </ParamField>
+
+    ### JSON Examples
+
+    **Initialize the entire model at root:**
+
+    ```json
+    {
+      "version": "v0.9",
+      "updateDataModel": {
+        "surfaceId": "booking",
+        "path": "/",
+        "value": {
+          "reservation": {
+            "datetime": "2025-12-16T19:00:00Z",
+            "guests": "2"
+          }
+        }
+      }
+    }
+    ```
+
+    **Update a single nested field:**
+
+    ```json
+    {
+      "version": "v0.9",
+      "updateDataModel": {
+        "surfaceId": "booking",
+        "path": "/reservation/guests",
+        "value": "3"
+      }
+    }
+    ```
+
+  </Tab>
+  <Tab title="v0.8 — dataModelUpdate">
+
+    ### TypeScript Schema
+
+    ```typescript
+    {
+      dataModelUpdate: {
+        surfaceId: string;
+        path?: string;       // Optional: dot-notation path within the model
+        contents: Array<{    // Required: typed key-value entries
+          key: string;
+          valueString?: string;
+          valueNumber?: number;
+          valueBoolean?: boolean;
+          valueMap?: Array<{ key: string; /* ... */ }>;
+        }>;
+      }
+    }
+    ```
+
+    ### Properties
+
+    <ParamField body="dataModelUpdate.surfaceId" type="string" required>
+      ID of the surface to update.
+    </ParamField>
+
+    <ParamField body="dataModelUpdate.path" type="string">
+      Dot-notation path scoping the update (e.g., `"user"`). If omitted, the update applies to the root of the data model.
+    </ParamField>
+
+    <ParamField body="dataModelUpdate.contents" type="array" required>
+      An adjacency-list of typed key-value pairs. Each entry must have `key` and exactly one of `valueString`, `valueNumber`, `valueBoolean`, or `valueMap`. This LLM-friendly format avoids ambiguous type inference.
+    </ParamField>
+
+    ### JSON Example
+
+    ```json
+    {
+      "dataModelUpdate": {
+        "surfaceId": "booking",
+        "path": "reservation",
+        "contents": [
+          { "key": "datetime", "valueString": "2025-12-16T19:00:00Z" },
+          { "key": "guests",   "valueString": "2" }
+        ]
+      }
+    }
+    ```
+
+  </Tab>
+</Tabs>
+
+---
+
+## deleteSurface
+
+Removes a surface and frees all associated component definitions and data model state. Safe to call on a surface that no longer exists (no-op).
+
+<Tabs>
+  <Tab title="v0.9 — deleteSurface">
+
+    ### TypeScript Schema
+
+    ```typescript
+    {
+      version: "v0.9";
+      deleteSurface: {
+        surfaceId: string;
+      }
+    }
+    ```
+
+    ### JSON Example
+
+    ```json
+    {
+      "version": "v0.9",
+      "deleteSurface": {
+        "surfaceId": "booking"
+      }
+    }
+    ```
+
+  </Tab>
+  <Tab title="v0.8 — deleteSurface">
+
+    ### TypeScript Schema
+
+    ```typescript
+    {
+      deleteSurface: {
+        surfaceId: string;
+      }
+    }
+    ```
+
+    ### JSON Example
+
+    ```json
+    {
+      "deleteSurface": {
+        "surfaceId": "booking"
+      }
+    }
+    ```
+
+  </Tab>
+</Tabs>
+
+### Properties
+
+<ParamField body="deleteSurface.surfaceId" type="string" required>
+  The ID of the surface to remove. The client should tear down the rendered UI and release all state for this surface.
+</ParamField>
+
+<Tip>
+  Send `deleteSurface` when closing modals, navigating away from a view, or completing a task. The identical inner structure works in both v0.8 and v0.9 — the only difference is the top-level `version` field.
+</Tip>
+
+---
+
+## Message Ordering
+
+Messages for different surfaces are fully independent and can be interleaved freely. Within a single surface, ordering rules apply.
+
+<Tabs>
+  <Tab title="v0.9 Recommended Order">
+
+    ```jsonl
+    { "version": "v0.9", "createSurface":    { "surfaceId": "main", "catalogId": "https://a2ui.org/specification/v0_9_1/catalogs/basic/catalog.json" } }
+    { "version": "v0.9", "updateComponents": { "surfaceId": "main", "components": [...] } }
+    { "version": "v0.9", "updateDataModel":  { "surfaceId": "main", "path": "/", "value": {...} } }
+    ```
+
+    Components and data can be interleaved freely after `createSurface`. The client renders as each message arrives (progressive rendering).
+
+  </Tab>
+  <Tab title="v0.8 Recommended Order">
+
+    ```jsonl
+    { "surfaceUpdate":   { "surfaceId": "main", "components": [...] } }
+    { "dataModelUpdate": { "surfaceId": "main", "contents": [...] } }
+    { "beginRendering":  { "surfaceId": "main", "root": "root" } }
+    ```
+
+    The client buffers `surfaceUpdate` and `dataModelUpdate` messages until `beginRendering` arrives. Post-render updates can be sent at any time.
+
+  </Tab>
+</Tabs>
+
+---
+
+## JSONL Streaming Example
+
+The following sequence builds a complete booking surface from scratch, then tears it down after confirmation. Each line is sent as soon as it is generated — the client renders progressively.
+
+```jsonl
+{ "version": "v0.9", "createSurface": { "surfaceId": "booking", "catalogId": "https://a2ui.org/specification/v0_9_1/catalogs/basic/catalog.json" } }
+{ "version": "v0.9", "updateComponents": { "surfaceId": "booking", "components": [{ "id": "root", "component": "Column", "children": ["header", "date-field", "guests-field", "submit-btn"] }] } }
+{ "version": "v0.9", "updateComponents": { "surfaceId": "booking", "components": [{ "id": "header", "component": "Text", "text": "Book a Table", "variant": "h1" }, { "id": "date-field", "component": "DateTimeInput", "value": { "path": "/reservation/datetime" }, "enableDate": true, "enableTime": true }] } }
+{ "version": "v0.9", "updateComponents": { "surfaceId": "booking", "components": [{ "id": "guests-field", "component": "TextField", "label": "Guests", "value": { "path": "/reservation/guests" }, "textFieldType": "number" }, { "id": "submit-btn", "component": "Button", "child": "submit-label", "variant": "primary", "action": { "event": { "name": "confirm" } } }, { "id": "submit-label", "component": "Text", "text": "Confirm" }] } }
+{ "version": "v0.9", "updateDataModel": { "surfaceId": "booking", "path": "/reservation", "value": { "datetime": "2025-12-16T19:00:00Z", "guests": "2" } } }
+{ "version": "v0.9", "deleteSurface": { "surfaceId": "booking" } }
+```
+
+<Note>
+  Components can be batched across multiple `updateComponents` messages. The flat adjacency-list format means the client can render each batch immediately without waiting for the full tree.
+</Note>
+
+---
+
+<CardGroup cols={2}>
+  <Card title="Component Reference" icon="puzzle-piece" href="/reference/components">
+    All available component types, properties, and version differences.
+  </Card>
+  <Card title="Data Binding" icon="link" href="/reference/data-binding">
+    How JSON Pointer paths connect components to application state.
+  </Card>
+  <Card title="Catalogs" icon="book" href="/reference/catalogs">
+    Catalog negotiation, schema structure, and versioning guidelines.
+  </Card>
+  <Card title="Transports" icon="arrow-right-arrow-left" href="/reference/transports">
+    Delivery mechanisms: A2A, AG-UI, WebSockets, and SSE.
+  </Card>
+</CardGroup>

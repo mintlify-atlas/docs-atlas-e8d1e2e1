@@ -1,0 +1,394 @@
+---
+title: "A2UI Protocol v0.8 — Legacy Specification Reference"
+sidebarTitle: "v0.8 Legacy"
+description: "Legacy A2UI v0.8 reference: surfaceUpdate, dataModelUpdate, beginRendering, nested component objects, BoundValue binding, and migration to v0.9.1."
+---
+
+A2UI v0.8 is the original release of the A2UI protocol, designed specifically for AI agents that use **structured output mode** — a feature offered by many LLM APIs that constrains generation to a strict JSON schema. Although v0.8 served as the foundation for the protocol's core concepts (surfaces, adjacency-list component trees, data model separation), it has been superseded by the prompt-first v0.9 family and is now in **legacy maintenance mode**.
+
+<Warning>
+  **Status: Legacy — minimal support.** v0.8 receives only critical bug fixes. New projects should use [v0.9.1](/specification/v0-9-1), which is fully stable and offers richer component catalogs, cleaner data binding, and a simpler message structure.
+</Warning>
+
+---
+
+## Design philosophy
+
+v0.8 was purpose-built around three requirements:
+
+1. **Structured-output compatibility** — every message conforms to a strict JSON schema that can be fed directly to LLM structured-output APIs, eliminating the risk of malformed JSON.
+2. **Progressive rendering** — the renderer buffers component and data messages, then renders once `beginRendering` is received, preventing a flash of incomplete content.
+3. **Platform agnosticism** — the server sends abstract component names (e.g., `"Text"`, `"Row"`); the client maps them to native widgets via a `WidgetRegistry`.
+
+The tradeoff is that the strict structured-output schema constrains catalog expressiveness, limiting component properties to what the schema permits. This is the primary reason v0.9 moved to a prompt-first approach.
+
+---
+
+## Message types
+
+v0.8 defines **four** server-to-client message types. Each message is a JSON object with exactly one of the following top-level keys.
+
+### `surfaceUpdate`
+
+The primary message for defining UI structure. Contains a flat list of component objects. A surface is implicitly created if it does not yet exist when `surfaceUpdate` is received.
+
+**Properties:**
+
+| Property | Type | Required | Description |
+|---|---|---|---|
+| `surfaceId` | string | — | The target surface ID. Defaults to a global surface if omitted. |
+| `components` | array | ✅ | Flat list of component instance objects. |
+
+```json
+{
+  "surfaceUpdate": {
+    "surfaceId": "main_content_area",
+    "components": [
+      {
+        "id": "root",
+        "component": {
+          "Column": {
+            "children": { "explicitList": ["profile_card"] }
+          }
+        }
+      },
+      {
+        "id": "profile_card",
+        "component": {
+          "Card": {
+            "child": "card_content"
+          }
+        }
+      }
+    ]
+  }
+}
+```
+
+---
+
+### `dataModelUpdate`
+
+Updates the data model for a surface. Unlike v0.9.x which uses plain JSON values, v0.8 uses a **typed adjacency list** (`contents` array) where each entry carries an explicit typed value key: `valueString`, `valueNumber`, `valueBoolean`, or `valueMap`.
+
+**Properties:**
+
+| Property | Type | Required | Description |
+|---|---|---|---|
+| `surfaceId` | string | — | The target surface ID. |
+| `path` | string | — | Path within the data model (e.g., `"user"`). Defaults to root. |
+| `contents` | array | ✅ | Array of `{ key, value* }` entries. |
+
+```json
+{
+  "dataModelUpdate": {
+    "surfaceId": "main_content_area",
+    "path": "user",
+    "contents": [
+      { "key": "name", "valueString": "Bob" },
+      { "key": "isVerified", "valueBoolean": true },
+      {
+        "key": "address",
+        "valueMap": [
+          { "key": "street", "valueString": "123 Main St" },
+          { "key": "city", "valueString": "Anytown" }
+        ]
+      }
+    ]
+  }
+}
+```
+
+---
+
+### `beginRendering`
+
+Signals that the renderer has received enough information to perform the initial render. The renderer buffers all `surfaceUpdate` and `dataModelUpdate` messages until this message arrives, preventing partial UI display.
+
+**Properties:**
+
+| Property | Type | Required | Description |
+|---|---|---|---|
+| `surfaceId` | string | ✅ | The surface to begin rendering. |
+| `root` | string | ✅ | The `id` of the root component. |
+| `catalogId` | string | — | The catalog to use. Defaults to the v0.8 standard catalog. |
+
+```json
+{
+  "beginRendering": {
+    "surfaceId": "unique-surface-1",
+    "catalogId": "https://a2ui.org/specification/v0_8/standard_catalog_definition.json",
+    "root": "root-component-id"
+  }
+}
+```
+
+<Note>
+  In v0.9.x, `beginRendering` was eliminated. The `createSurface` message replaced it, and the renderer renders progressively as soon as the `root` component is defined — no explicit render signal is needed.
+</Note>
+
+---
+
+### `deleteSurface`
+
+Instructs the renderer to remove a surface and all its components and data. This message is structurally the same across all A2UI versions.
+
+```json
+{
+  "deleteSurface": {
+    "surfaceId": "main_content_area"
+  }
+}
+```
+
+---
+
+## Component format: nested object style
+
+The most visible difference between v0.8 and v0.9.x is **how component types are expressed**. In v0.8, the `component` field is a **wrapper object** with exactly one key — the component type string — whose value contains the component's properties.
+
+<Tabs>
+  <Tab title="v0.8 format (nested object)">
+    ```json
+    {
+      "id": "greeting",
+      "component": {
+        "Text": {
+          "text": { "literalString": "Hello, World!" }
+        }
+      }
+    }
+    ```
+  </Tab>
+  <Tab title="v0.9.1 format (flat string)">
+    ```json
+    {
+      "id": "greeting",
+      "component": "Text",
+      "text": "Hello, World!"
+    }
+    ```
+  </Tab>
+</Tabs>
+
+The nested wrapper approach was chosen for structured-output compatibility: it creates a JSON Schema discriminated union where the key name selects the component type, allowing strict schema validation without ambiguity. In practice, this pattern is harder for LLMs to generate reliably in free-text mode, which motivated the switch to the flat `"component": "Text"` format in v0.9.
+
+---
+
+## Data binding: `BoundValue`
+
+In v0.8, any property that accepts dynamic data uses a `BoundValue` object with explicit named value keys, rather than a unified `Dynamic*` type:
+
+| `BoundValue` key | Type | Description |
+|---|---|---|
+| `literalString` | string | Static string value. |
+| `literalNumber` | number | Static number value. |
+| `literalBoolean` | boolean | Static boolean value. |
+| `literalArray` | array | Static array value. |
+| `path` | string | JSON Pointer to a data model location. |
+
+```json
+{
+  "id": "name_text",
+  "component": {
+    "Text": {
+      "text": { "path": "/user/name" }
+    }
+  }
+}
+```
+
+When both `path` and a `literal*` value are present in the same `BoundValue`, it serves as an **initialization shorthand**: the renderer writes the literal value into the data model at the given path (as an implicit `dataModelUpdate`) and then binds the component property to that path.
+
+```json
+{
+  "text": { "path": "/user/name", "literalString": "Guest" }
+}
+```
+
+In v0.9.x, this dual-value shorthand is removed. Initial data is always set via a separate `updateDataModel` message, making data flow explicit and unambiguous.
+
+---
+
+## Children: `explicitList` and `template`
+
+Container components (`Row`, `Column`, `List`) in v0.8 define their children using a `children` object with exactly one of two keys:
+
+- **`explicitList`** — static ordered list of child component IDs
+- **`template`** — dynamic list rendering from a data-bound array
+
+```json
+{
+  "id": "user_list",
+  "component": {
+    "Column": {
+      "children": {
+        "explicitList": ["item_1", "item_2", "item_3"]
+      }
+    }
+  }
+}
+```
+
+```json
+{
+  "id": "dynamic_list",
+  "component": {
+    "List": {
+      "children": {
+        "template": {
+          "dataBinding": { "path": "/users" },
+          "componentId": "user_card_template"
+        }
+      }
+    }
+  }
+}
+```
+
+In v0.9.x, the `ChildList` type unifies this into a single property: an array value is an explicit list; an object value with `path` and `componentId` is a template.
+
+---
+
+## Complete JSONL stream example
+
+The following example renders a minimal user profile card in v0.8 format:
+
+```json
+{"surfaceUpdate": {"components": [{"id": "root", "component": {"Column": {"children": {"explicitList": ["profile_card"]}}}}]}}
+{"surfaceUpdate": {"components": [{"id": "profile_card", "component": {"Card": {"child": "card_content"}}}]}}
+{"surfaceUpdate": {"components": [{"id": "card_content", "component": {"Column": {"children": {"explicitList": ["header_row", "bio_text"]}}}}]}}
+{"surfaceUpdate": {"components": [{"id": "header_row", "component": {"Row": {"alignment": "center", "children": {"explicitList": ["avatar", "name_column"]}}}}]}}
+{"surfaceUpdate": {"components": [{"id": "avatar", "component": {"Image": {"url": {"literalString": "https://www.example.com/profile.jpg"}}}}]}}
+{"surfaceUpdate": {"components": [{"id": "name_column", "component": {"Column": {"alignment": "start", "children": {"explicitList": ["name_text", "handle_text"]}}}}]}}
+{"surfaceUpdate": {"components": [{"id": "name_text", "component": {"Text": {"usageHint": "h3", "text": {"literalString": "A2A Fan"}}}}]}}
+{"surfaceUpdate": {"components": [{"id": "handle_text", "component": {"Text": {"text": {"literalString": "@a2a_fan"}}}}]}}
+{"surfaceUpdate": {"components": [{"id": "bio_text", "component": {"Text": {"text": {"literalString": "Building beautiful apps from a single codebase."}}}}]}}
+{"dataModelUpdate": {"contents": {}}}
+{"beginRendering": {"root": "root"}}
+```
+
+---
+
+## Key differences: v0.8 vs. v0.9.1
+
+| Aspect | v0.8 | v0.9.1 |
+|---|---|---|
+| **LLM generation mode** | Structured output (schema-constrained) | Prompt-first (schema in prompt) |
+| **Surface initialization** | `beginRendering` (explicit render signal) | `createSurface` (render as soon as `root` defined) |
+| **Component type syntax** | `{ "Text": { "text": {...} } }` (nested object) | `"component": "Text"` (flat string) |
+| **Data model update** | Typed adjacency list (`contents` array with `valueString`, etc.) | Plain JSON value at a JSON Pointer `path` |
+| **Data binding** | `BoundValue` with explicit `literalString` / `path` keys | `DynamicString` — bare string or `{ "path": "..." }` |
+| **Children definition** | `{ "explicitList": [...] }` or `{ "template": {...} }` wrapper object | Direct array or `{ "path": ..., "componentId": ... }` object |
+| **Schema modularity** | Single monolithic `server_to_client.json` with catalog inlined | Separate `common_types.json`, `server_to_client.json`, `catalog.json` |
+| **Catalog ID in message** | Set in `beginRendering.catalogId` | Set in `createSurface.catalogId` |
+| **Client-side validation** | Not supported | `checks` array with named functions |
+
+---
+
+## Migration guide: v0.8 → v0.9.1
+
+<Steps>
+  <Step title="Replace surfaceUpdate + beginRendering with createSurface + updateComponents">
+    Remove `beginRendering` messages entirely. Replace `surfaceUpdate` with `updateComponents`. Add a preceding `createSurface` message that declares the `surfaceId` and `catalogId`. The renderer will begin rendering progressively as soon as it processes the `root` component — no explicit render signal is needed.
+  </Step>
+  <Step title="Flatten the component object">
+    Change the `component` field from a nested discriminated object to a plain string type name, and move all properties to the top-level component object.
+
+    ```json
+    // v0.8
+    { "id": "t", "component": { "Text": { "text": { "literalString": "Hi" } } } }
+
+    // v0.9.1
+    { "id": "t", "component": "Text", "text": "Hi" }
+    ```
+  </Step>
+  <Step title="Replace dataModelUpdate contents with plain JSON values">
+    Replace the typed `contents` adjacency list with a `value` field containing a plain JSON object or scalar. Use a JSON Pointer `path` to target specific locations within the data model.
+
+    ```json
+    // v0.8
+    { "dataModelUpdate": { "path": "user", "contents": [{ "key": "name", "valueString": "Bob" }] } }
+
+    // v0.9.1
+    { "version": "v0.9.1", "updateDataModel": { "surfaceId": "s", "path": "/user/name", "value": "Bob" } }
+    ```
+  </Step>
+  <Step title="Update data binding syntax">
+    Replace `BoundValue` objects using `literalString` / `literalNumber` / `path` with the simplified `DynamicString` / `DynamicNumber` format: either a bare literal or `{ "path": "..." }`.
+
+    ```json
+    // v0.8
+    "text": { "literalString": "Hello" }
+    "text": { "path": "/user/name" }
+
+    // v0.9.1
+    "text": "Hello"
+    "text": { "path": "/user/name" }
+    ```
+  </Step>
+  <Step title="Update children syntax">
+    Replace the `{ "explicitList": [...] }` and `{ "template": {...} }` child wrappers with the unified `ChildList` format.
+
+    ```json
+    // v0.8
+    "children": { "explicitList": ["a", "b"] }
+    "children": { "template": { "dataBinding": { "path": "/users" }, "componentId": "tpl" } }
+
+    // v0.9.1
+    "children": ["a", "b"]
+    "children": { "path": "/users", "componentId": "tpl" }
+    ```
+  </Step>
+  <Step title="Move catalogId to createSurface">
+    Remove `catalogId` from `beginRendering` (which is now deleted) and add it to the new `createSurface` message.
+  </Step>
+  <Step title="Add version fields">
+    Add `"version": "v0.9.1"` to every server-to-client envelope.
+  </Step>
+  <Step title="Update the catalog schema">
+    If you have a custom v0.8 catalog, restructure it to use the `common_types.json` `Dynamic*` and `ChildList` types, split out `server_to_client.json` and `catalog.json` per the v0.9.1 modular schema layout.
+  </Step>
+</Steps>
+
+---
+
+## Client-to-server messages in v0.8
+
+v0.8 client-to-server messages use the key `userAction` (renamed to `action` in v0.9.x):
+
+```json
+{
+  "userAction": {
+    "name": "submit_form",
+    "surfaceId": "main_content_area",
+    "sourceComponentId": "submit_btn",
+    "timestamp": "2025-09-19T17:05:00Z",
+    "context": {
+      "userInput": "User input text",
+      "formId": "f-123"
+    }
+  }
+}
+```
+
+In v0.9.x, this becomes `action` (the outer key and the property name are unified), and the `context` field is directly a resolved JSON object rather than an array of key/value entries.
+
+---
+
+## Related pages
+
+<CardGroup cols={2}>
+  <Card title="v0.9.1 Specification" icon="check-circle" href="/specification/v0-9-1">
+    Current stable release — the recommended target for all migration work.
+  </Card>
+  <Card title="v1.0 Specification" icon="flask" href="/specification/v1-0">
+    Release candidate with `actionResponse` RPC and single-message UI instantiation.
+  </Card>
+  <Card title="Basic Catalog Implementation Guide" icon="book-open" href="/reference/catalogs">
+    Component-by-component guide to implementing the v0.9.1 Basic Catalog.
+  </Card>
+  <Card title="Transport Bindings" icon="plug" href="/reference/transports">
+    A2A, AG-UI, MCP, and other supported transport layers.
+  </Card>
+</CardGroup>

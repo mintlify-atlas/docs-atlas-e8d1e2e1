@@ -1,0 +1,399 @@
+---
+title: "A2UI Protocol v1.0 — Release Candidate Specification"
+sidebarTitle: "v1.0 Spec"
+description: "A2UI v1.0 release candidate: actionResponse RPC, callFunction, single-message surface creation, surfaceProperties, and UAX #31 naming rules."
+---
+
+A2UI v1.0 is the **release candidate** for the next major version of the A2UI protocol. It builds on the stable v0.9.1 foundation and introduces bidirectional RPC messaging, single-message UI instantiation, decoupled surface branding, and stricter catalog schema rules — while keeping all four core v0.9.x message types intact.
+
+<Warning>
+  **Status: Release Candidate — not yet stable.** v1.0 is suitable for experimentation and early adoption, but its APIs may still change before the final release. For production workloads, use [v0.9.1](/specification/v0-9-1).
+</Warning>
+
+## What changed from v0.9.1
+
+v1.0 introduces five major areas of change:
+
+1. **Bidirectional RPC** — A new `actionResponse` server-to-client message lets agents respond synchronously to client actions, enabling typeahead suggestions, form validation results, and other request-response patterns.
+2. **Server-initiated function calls** — A new `callFunction` server-to-client message allows the agent to invoke catalog-registered client-side functions remotely (subject to `callableFrom` boundary checks).
+3. **Single-message UI instantiation** — `createSurface` now accepts optional `components` and `dataModel` fields, letting an agent compose an entire surface in a single payload.
+4. **Decoupled branding** — The `theme` property is replaced by `surfaceProperties`, and the hardcoded `primaryColor` field is removed. Visual styling is deferred to the target framework's native theme.
+5. **Stricter catalog conventions** — Function definitions move from a list to a keyed object map; catalog entity names must conform to Unicode UAX #31; `$schema` / `$id` metadata fields are supported on inline catalogs.
+
+---
+
+## Protocol overview
+
+The message flow in v1.0 is an extension of v0.9.1. The agent streams JSON envelopes to the renderer; the renderer sends `action`, `functionResponse`, and `error` messages back over the transport's return channel.
+
+The major addition is the **synchronous RPC loop** enabled by `wantResponse` + `actionId` + `actionResponse`:
+
+<Steps>
+  <Step title="Client action with wantResponse">
+    The renderer sends an `action` message with `"wantResponse": true` and a unique `actionId`.
+  </Step>
+  <Step title="Agent processes the action">
+    The agent receives the action, performs any server-side logic (e.g., querying a database), and prepares a response payload.
+  </Step>
+  <Step title="Agent sends actionResponse">
+    The agent sends an `actionResponse` message back to the renderer, referencing the same `actionId`, with either a `value` or an `error`.
+  </Step>
+  <Step title="Renderer writes to data model">
+    If `responsePath` was set in the action definition, the renderer automatically writes the response `value` into the local data model at that path, triggering a reactive re-render.
+  </Step>
+</Steps>
+
+---
+
+## Message types
+
+All v0.9.1 message types are fully supported in v1.0. The `"version"` field in every envelope must be `"v1.0"`. v1.0 adds two new server-to-client messages: `actionResponse` and `callFunction`.
+
+### `createSurface`
+
+The v1.0 `createSurface` message is a superset of its v0.9.1 counterpart. The key additions are:
+
+- `surfaceProperties` replaces `theme` (and `primaryColor` is removed)
+- `components` — an optional initial component list, eliminating the need for a separate `updateComponents` message
+- `dataModel` — an optional initial data model object
+
+**Properties:**
+
+| Property | Type | Required | Description |
+|---|---|---|---|
+| `surfaceId` | string | ✅ | Globally unique surface ID for the renderer's session lifetime. |
+| `catalogId` | string | ✅ | URI identifier for the component catalog. |
+| `surfaceProperties` | object | — | Catalog-defined surface properties (e.g., `agentDisplayName`). Replaces `theme`. |
+| `sendDataModel` | boolean | — | Sends full data model in client message metadata. Defaults to `false`. |
+| `components` | array | — | Initial component list; same schema as `updateComponents.components`. |
+| `dataModel` | object | — | Initial root data model state. |
+
+```json
+{
+  "version": "v1.0",
+  "createSurface": {
+    "surfaceId": "user_profile_card",
+    "catalogId": "https://a2ui.org/specification/v1_0/catalogs/basic/catalog.json",
+    "surfaceProperties": {
+      "agentDisplayName": "Weather Bot"
+    },
+    "sendDataModel": true,
+    "components": [
+      {
+        "id": "root",
+        "component": "Column",
+        "children": ["user_name"]
+      },
+      {
+        "id": "user_name",
+        "component": "Text",
+        "text": { "path": "/name" }
+      }
+    ],
+    "dataModel": {
+      "name": "John Doe"
+    }
+  }
+}
+```
+
+---
+
+### `updateComponents`, `updateDataModel`, `deleteSurface`
+
+These three messages are structurally identical to their v0.9.1 counterparts, with only the `"version"` field updated to `"v1.0"`.
+
+<Tabs>
+  <Tab title="updateComponents">
+    ```json
+    {
+      "version": "v1.0",
+      "updateComponents": {
+        "surfaceId": "user_profile_card",
+        "components": [
+          {
+            "id": "root",
+            "component": "Column",
+            "children": ["user_name", "user_title"]
+          },
+          {
+            "id": "user_name",
+            "component": "Text",
+            "text": "John Doe"
+          },
+          {
+            "id": "user_title",
+            "component": "Text",
+            "text": "Software Engineer"
+          }
+        ]
+      }
+    }
+    ```
+  </Tab>
+  <Tab title="updateDataModel">
+    ```json
+    {
+      "version": "v1.0",
+      "updateDataModel": {
+        "surfaceId": "user_profile_card",
+        "path": "/user/name",
+        "value": "Jane Doe"
+      }
+    }
+    ```
+
+    <Note>
+      In v1.0, setting a path's `value` to `null` explicitly **deletes** the key. This is the canonical deletion mechanism, replacing the ambiguous omission behavior allowed in v0.9.x.
+    </Note>
+  </Tab>
+  <Tab title="deleteSurface">
+    ```json
+    {
+      "version": "v1.0",
+      "deleteSurface": {
+        "surfaceId": "user_profile_card"
+      }
+    }
+    ```
+  </Tab>
+</Tabs>
+
+---
+
+### `actionResponse` *(new in v1.0)*
+
+`actionResponse` is the new server-to-client message that closes the synchronous RPC loop opened by a client `action` with `wantResponse: true`. It carries either a success `value` or an `error` — exactly one must be present.
+
+**Properties:**
+
+| Property | Type | Required | Description |
+|---|---|---|---|
+| `actionId` | string | ✅ | Must match the `actionId` sent by the client in the originating `action`. |
+| `actionResponse.value` | any | — | Return value on success. |
+| `actionResponse.error.code` | string | — | Machine-readable error code. |
+| `actionResponse.error.message` | string | — | Human-readable error description. |
+
+**Example — typeahead suggestions:**
+
+The client sends this action when the user types in a search field:
+
+```json
+{
+  "version": "v1.0",
+  "action": {
+    "name": "get_typeahead_suggestions",
+    "surfaceId": "mysurface",
+    "sourceComponentId": "myinput",
+    "context": { "prefix": "app" },
+    "wantResponse": true,
+    "actionId": "get_typeahead_suggestions_1"
+  }
+}
+```
+
+The agent responds synchronously:
+
+```json
+{
+  "version": "v1.0",
+  "actionId": "get_typeahead_suggestions_1",
+  "actionResponse": {
+    "value": ["apple", "application", "approved"]
+  }
+}
+```
+
+**Example — error response:**
+
+```json
+{
+  "version": "v1.0",
+  "actionId": "get_typeahead_suggestions_1",
+  "actionResponse": {
+    "error": {
+      "code": "UPSTREAM_TIMEOUT",
+      "message": "The suggestion service did not respond in time."
+    }
+  }
+}
+```
+
+<Tip>
+  When defining button actions that use `wantResponse`, include a `responsePath` field pointing to a data model location. The renderer will automatically write the returned `value` there, triggering a reactive UI update without additional orchestration.
+</Tip>
+
+---
+
+### `callFunction` *(new in v1.0)*
+
+`callFunction` lets the agent invoke a **catalog-registered** client-side function remotely and receive its result. Execution boundaries are declared in the catalog (`callableFrom: "clientOnly" | "remoteOnly" | "clientOrRemote"`); functions marked `clientOnly` must be rejected with `INVALID_FUNCTION_CALL`.
+
+**Properties:**
+
+| Property | Type | Required | Description |
+|---|---|---|---|
+| `functionCallId` | string | ✅ | Unique invocation ID. Copied verbatim into the `functionResponse`. |
+| `wantResponse` | boolean | — | If `true`, the client must reply with `functionResponse` or `error`. |
+| `callFunction.call` | string | ✅ | Registered function name as defined in the catalog. |
+| `callFunction.args` | object | — | Arguments matching the function's catalog schema. |
+
+```json
+{
+  "version": "v1.0",
+  "functionCallId": "get_device_resolution_123",
+  "wantResponse": true,
+  "callFunction": {
+    "call": "getScreenResolution",
+    "args": { "screenIndex": 0 }
+  }
+}
+```
+
+Successful client response:
+
+```json
+{
+  "version": "v1.0",
+  "functionResponse": {
+    "functionCallId": "get_device_resolution_123",
+    "call": "getScreenResolution",
+    "value": [1920, 1080]
+  }
+}
+```
+
+Rejection when the function is `clientOnly`:
+
+```json
+{
+  "version": "v1.0",
+  "error": {
+    "code": "INVALID_FUNCTION_CALL",
+    "message": "Function 'validateLocalInput' is clientOnly and cannot be invoked remotely.",
+    "functionCallId": "get_device_resolution_123"
+  }
+}
+```
+
+---
+
+## Complete JSONL stream example
+
+The following stream demonstrates v1.0 single-message surface creation followed by a data update:
+
+```json
+{"version": "v1.0", "createSurface": {"surfaceId": "contact_form_1", "catalogId": "https://a2ui.org/specification/v1_0/catalogs/basic/catalog.json"}}
+{"version": "v1.0", "updateComponents": {"surfaceId": "contact_form_1", "components": [{"id": "root", "component": "Card", "child": "form_container"}, {"id": "form_container", "component": "Column", "children": ["header_row", "email_group", "submit_button"], "justify": "start", "align": "stretch"}, {"id": "header_row", "component": "Row", "children": ["header_icon", "header_text"], "align": "center"}, {"id": "header_icon", "component": "Icon", "name": "mail"}, {"id": "header_text", "component": "Text", "text": "# Contact Us"}, {"id": "email_group", "component": "Column", "children": ["email_label", "email_field"]}, {"id": "email_label", "component": "Text", "text": "Email Address", "variant": "caption"}, {"id": "email_field", "component": "TextField", "label": "Email", "value": {"path": "/contact/email"}, "variant": "shortText", "checks": [{"call": "required", "args": {"value": {"path": "/contact/email"}}, "message": "Email is required."}, {"call": "email", "args": {"value": {"path": "/contact/email"}}, "message": "Please enter a valid email address."}]}, {"id": "submit_button_label", "component": "Text", "text": "Send Message"}, {"id": "submit_button", "component": "Button", "child": "submit_button_label", "variant": "primary", "action": {"event": {"name": "submitContactForm", "context": {"formId": "contact_form_1", "email": {"path": "/contact/email"}}}}}]}}
+{"version": "v1.0", "updateDataModel": {"surfaceId": "contact_form_1", "path": "/contact", "value": {"email": "john.doe@example.com"}}}
+{"version": "v1.0", "deleteSurface": {"surfaceId": "contact_form_1"}}
+```
+
+---
+
+## Catalog schema changes
+
+### `surfaceProperties` replaces `theme`
+
+The `theme` property in `createSurface` is renamed to `surfaceProperties`. The `primaryColor` property is removed from the Basic Catalog's surface properties — visual theming is delegated entirely to the renderer's native framework.
+
+The v1.0 Basic Catalog `surfaceProperties`:
+
+| Property | Type | Description |
+|---|---|---|
+| `iconUrl` | URI | Logo/avatar image identifying the agent. |
+| `agentDisplayName` | string | Agent name displayed beside the surface. |
+
+### Functions as object map
+
+In v0.9.1, catalog functions were defined as a list. In v1.0, they are defined as a **keyed object map** where each key is the function name. This enables O(1) lookups and aligns with the component schema structure.
+
+```json
+{
+  "functions": {
+    "required": {
+      "type": "object",
+      "returnType": "boolean",
+      "callableFrom": "clientOnly",
+      "properties": {
+        "call": { "const": "required" },
+        "args": {
+          "type": "object",
+          "properties": { "value": { "description": "The value to check." } },
+          "required": ["value"]
+        }
+      }
+    }
+  }
+}
+```
+
+### UAX #31 naming rules
+
+All catalog entity identifiers — component names, function names, and argument/property keys — must conform to [Unicode Standard Annex #31 (UAX #31)](https://www.unicode.org/reports/tr31/):
+
+```
+^[\p{XID_Start}_][\p{XID_Continue}]*$
+```
+
+- ✅ Valid: `UserProfileCard`, `submit_form`, `item_id_1`, `_internal_state`
+- ❌ Invalid: `User Card` (whitespace), `1stItem` (digit start), `submit-form` (hyphen)
+
+### `@` system namespace
+
+Function names beginning with `@` are reserved for core system context evaluations available across all catalogs. Custom catalogs must not define functions with an `@` prefix.
+
+The only built-in `@` function in v1.0 is `@index`, which returns the 0-based iteration index during list template rendering (Collection Scope only).
+
+---
+
+## Migration guide: v0.9.1 → v1.0
+
+<Steps>
+  <Step title="Update version field">
+    Change `"version": "v0.9.1"` to `"version": "v1.0"` in all streamed envelopes and client-to-server messages.
+  </Step>
+  <Step title="Rename theme to surfaceProperties">
+    Rename the `theme` field in `createSurface` messages to `surfaceProperties`. Remove any `primaryColor` usage — defer color theming to the renderer framework.
+  </Step>
+  <Step title="Update catalog function definitions">
+    Convert the `functions` property in catalog definitions from an array to a JSON object map keyed by function name. Add `callableFrom` and `returnType` metadata fields to each function definition.
+  </Step>
+  <Step title="Rename catalog defs/theme to defs/surfaceProperties">
+    In catalog JSON schemas, rename `$defs/theme` to `$defs/surfaceProperties` and remove `primaryColor`.
+  </Step>
+  <Step title="Implement actionResponse (renderers)">
+    Add support for parsing `actionResponse` messages. When an `action` with `wantResponse: true` is sent, generate an `actionId` and await a matching `actionResponse`. Write `value` into the data model at `responsePath` if specified.
+  </Step>
+  <Step title="Implement callFunction (renderers)">
+    Add support for parsing `callFunction` messages. Check the requested function's `callableFrom` boundary in the catalog. Reject `clientOnly` calls with `INVALID_FUNCTION_CALL`. Return `functionResponse` for `wantResponse: true` invocations.
+  </Step>
+  <Step title="Enforce UAX #31 naming">
+    Verify that all catalog entity names (component names, function names, argument keys) conform to UAX #31. Reject or sanitize any non-conforming identifiers.
+  </Step>
+  <Step title="Update deletion semantics">
+    To delete a key in `updateDataModel`, set its `value` to `null` explicitly. Do not rely on omitting `value` for deletion — the behavior changed in v1.0.
+  </Step>
+  <Step title="Update MIME type">
+    Ensure all transport-layer MIME type headers use `application/a2ui+json`.
+  </Step>
+</Steps>
+
+---
+
+## Related pages
+
+<CardGroup cols={2}>
+  <Card title="v0.9.1 Specification" icon="check-circle" href="/specification/v0-9-1">
+    The current stable release — recommended for production use.
+  </Card>
+  <Card title="v0.8 Legacy Specification" icon="archive" href="/specification/v0-8-legacy">
+    The original nested-object format with structured-output support.
+  </Card>
+  <Card title="Basic Catalog Implementation Guide" icon="book-open" href="/reference/catalogs">
+    How to implement a renderer against the Basic Catalog components and functions.
+  </Card>
+  <Card title="Transport Bindings" icon="plug" href="/reference/transports">
+    AG-UI, A2A, MCP, SSE, WebSocket, and REST transport options.
+  </Card>
+</CardGroup>

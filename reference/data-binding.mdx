@@ -1,0 +1,479 @@
+---
+title: "A2UI Data Binding: JSON Pointer Paths and Reactive State"
+sidebarTitle: "Data Binding"
+description: "How A2UI binds component properties to live data model values using JSON Pointer paths, updateDataModel messages, dynamic lists, and bidirectional input sync."
+---
+
+A2UI cleanly separates **UI structure** (the component tree) from **application state** (the data model). Component definitions describe what the interface looks like; the data model holds the values those components display. Binding a component property to a JSON Pointer path means the client updates that property automatically whenever the underlying data changes — the agent never has to resend component definitions just to change a displayed value.
+
+---
+
+## The Two Layers
+
+| Layer | Sent via | Changes via |
+|-------|---------|------------|
+| **UI Structure** | `updateComponents` | Send a new `updateComponents` for changed components |
+| **Application State** | `updateDataModel` | Send a targeted `updateDataModel` to any path |
+
+This separation enables three powerful patterns:
+
+- **Reactive updates** — change a data path; bound components re-render automatically.
+- **Dynamic lists** — bind a container's children to an array path; the list grows and shrinks with the data.
+- **Bidirectional sync** — user input on form components flows back into the data model without a round-trip to the agent.
+
+---
+
+## The Data Model
+
+Each surface owns a single JSON object as its state store. There is no global store — the model is scoped to the surface's `surfaceId`. A typical model might look like:
+
+```json
+{
+  "user": {
+    "name": "Alice",
+    "email": "alice@example.com"
+  },
+  "cart": {
+    "items": [
+      { "name": "Widget", "price": "$9.99", "quantity": 2 }
+    ],
+    "total": "$19.98"
+  },
+  "ui": {
+    "loading": false
+  }
+}
+```
+
+---
+
+## JSON Pointer Paths
+
+A2UI uses [RFC 6901 JSON Pointer](https://tools.ietf.org/html/rfc6901) syntax to address values inside the data model:
+
+| Path | Resolves to |
+|------|-------------|
+| `/user/name` | `"Alice"` |
+| `/cart/items/0/price` | `"$9.99"` |
+| `/cart/total` | `"$19.98"` |
+| `/ui/loading` | `false` |
+
+Paths always start with `/`. Array elements use zero-based numeric segments (`/cart/items/0`).
+
+---
+
+## Binding Syntax
+
+To bind a component property to a data model path, pass a `{ "path": "..." }` object instead of a literal value.
+
+<Tabs>
+  <Tab title="v0.9">
+
+    **Literal value (static):**
+
+    ```json
+    {
+      "id": "page-title",
+      "component": "Text",
+      "text": "My Dashboard"
+    }
+    ```
+
+    **Data-bound value (reactive):**
+
+    ```json
+    {
+      "id": "user-name",
+      "component": "Text",
+      "text": { "path": "/user/name" }
+    }
+    ```
+
+    When `/user/name` changes from `"Alice"` to `"Bob"`, the `user-name` component automatically re-renders to display `"Bob"` — no `updateComponents` needed.
+
+  </Tab>
+  <Tab title="v0.8">
+
+    In v0.8, literal values use the `{ "literalString": "..." }` wrapper.
+
+    **Literal value (static):**
+
+    ```json
+    {
+      "id": "page-title",
+      "component": {
+        "Text": {
+          "text": { "literalString": "My Dashboard" }
+        }
+      }
+    }
+    ```
+
+    **Data-bound value (reactive):**
+
+    ```json
+    {
+      "id": "user-name",
+      "component": {
+        "Text": {
+          "text": { "path": "/user/name" }
+        }
+      }
+    }
+    ```
+
+  </Tab>
+</Tabs>
+
+---
+
+## Updating the Data Model
+
+Use `updateDataModel` to write any JSON value to any path. Affected components re-render immediately.
+
+<Tabs>
+  <Tab title="v0.9 — updateDataModel">
+
+    **Initialize the full model:**
+
+    ```json
+    {
+      "version": "v0.9",
+      "updateDataModel": {
+        "surfaceId": "dashboard",
+        "path": "/",
+        "value": {
+          "user": { "name": "Alice", "email": "alice@example.com" },
+          "cart": { "items": [], "total": "$0.00" }
+        }
+      }
+    }
+    ```
+
+    **Update a single field:**
+
+    ```json
+    {
+      "version": "v0.9",
+      "updateDataModel": {
+        "surfaceId": "dashboard",
+        "path": "/user/name",
+        "value": "Bob"
+      }
+    }
+    ```
+
+    **Replace an array:**
+
+    ```json
+    {
+      "version": "v0.9",
+      "updateDataModel": {
+        "surfaceId": "dashboard",
+        "path": "/cart/items",
+        "value": [
+          { "name": "Widget", "price": "$9.99", "quantity": 3 }
+        ]
+      }
+    }
+    ```
+
+    **Delete a key (omit `value`):**
+
+    ```json
+    {
+      "version": "v0.9",
+      "updateDataModel": {
+        "surfaceId": "dashboard",
+        "path": "/ui/loading"
+      }
+    }
+    ```
+
+  </Tab>
+  <Tab title="v0.8 — dataModelUpdate">
+
+    v0.8 uses a typed adjacency list (`valueString`, `valueNumber`, `valueBoolean`, `valueMap`) to avoid LLM type-inference errors.
+
+    **Initialize the full model:**
+
+    ```json
+    {
+      "dataModelUpdate": {
+        "surfaceId": "dashboard",
+        "contents": [
+          {
+            "key": "user",
+            "valueMap": [
+              { "key": "name",  "valueString": "Alice" },
+              { "key": "email", "valueString": "alice@example.com" }
+            ]
+          },
+          {
+            "key": "cart",
+            "valueMap": [
+              { "key": "total", "valueString": "$0.00" }
+            ]
+          }
+        ]
+      }
+    }
+    ```
+
+    **Update a nested field:**
+
+    ```json
+    {
+      "dataModelUpdate": {
+        "surfaceId": "dashboard",
+        "path": "user",
+        "contents": [
+          { "key": "name", "valueString": "Bob" }
+        ]
+      }
+    }
+    ```
+
+  </Tab>
+</Tabs>
+
+---
+
+## End-to-End Reactive Example
+
+This example shows a complete binding cycle: a component bound to a path, the initial data that populates it, and a subsequent update that causes an automatic re-render.
+
+**1. Declare the component with a binding:**
+
+```json
+{
+  "version": "v0.9",
+  "updateComponents": {
+    "surfaceId": "order-tracker",
+    "components": [
+      {
+        "id": "status-display",
+        "component": "Text",
+        "text": { "path": "/order/status" },
+        "variant": "body"
+      }
+    ]
+  }
+}
+```
+
+**2. Seed the data model:**
+
+```json
+{
+  "version": "v0.9",
+  "updateDataModel": {
+    "surfaceId": "order-tracker",
+    "path": "/order/status",
+    "value": "Processing…"
+  }
+}
+```
+
+The `status-display` component now shows `"Processing…"`.
+
+**3. Update the data later — no component redefinition needed:**
+
+```json
+{
+  "version": "v0.9",
+  "updateDataModel": {
+    "surfaceId": "order-tracker",
+    "path": "/order/status",
+    "value": "Shipped ✓"
+  }
+}
+```
+
+The `status-display` component automatically re-renders to show `"Shipped ✓"`.
+
+---
+
+## Dynamic Lists
+
+Bind a container's `children` to an array path to render one template component instance per array item. As the array grows or shrinks, the rendered list updates automatically.
+
+<Tabs>
+  <Tab title="v0.9">
+
+    ```json
+    {
+      "id": "product-list",
+      "component": "Column",
+      "children": {
+        "path": "/products",
+        "componentId": "product-card"
+      }
+    }
+    ```
+
+    Inside the `product-card` template, paths are **scoped to the current array item**. A path like `{ "path": "/name" }` resolves to `/products/0/name` for the first item, `/products/1/name` for the second, and so on:
+
+    ```json
+    {
+      "id": "product-card",
+      "component": "Card",
+      "child": "product-info"
+    }
+    ```
+
+    ```json
+    {
+      "id": "product-info",
+      "component": "Column",
+      "children": ["product-name", "product-price"]
+    }
+    ```
+
+    ```json
+    {
+      "id": "product-name",
+      "component": "Text",
+      "text": { "path": "/name" }
+    }
+    ```
+
+    ```json
+    {
+      "id": "product-price",
+      "component": "Text",
+      "text": { "path": "/price" },
+      "variant": "caption"
+    }
+    ```
+
+    **Seed the array:**
+
+    ```json
+    {
+      "version": "v0.9",
+      "updateDataModel": {
+        "surfaceId": "store",
+        "path": "/products",
+        "value": [
+          { "name": "Widget", "price": "$9.99" },
+          { "name": "Gadget", "price": "$19.99" }
+        ]
+      }
+    }
+    ```
+
+    This produces two rendered cards. Adding a third item to `/products` automatically renders a third card.
+
+  </Tab>
+  <Tab title="v0.8">
+
+    ```json
+    {
+      "id": "product-list",
+      "component": {
+        "Column": {
+          "children": {
+            "template": {
+              "dataBinding": "/products",
+              "componentId": "product-card"
+            }
+          }
+        }
+      }
+    }
+    ```
+
+    Inside the template, paths are scoped to each array item using `/name`, `/price`, etc.
+
+  </Tab>
+</Tabs>
+
+---
+
+## Bidirectional Input Binding
+
+Input components write user changes back into the data model automatically. The agent does not need to listen for individual keystrokes — it reads the full data model value when the user submits.
+
+<Tabs>
+  <Tab title="v0.9">
+
+    | Component | Binding property | User action | Data model update |
+    |-----------|----------------|-------------|-------------------|
+    | `TextField` | `value` | Types `"Alice"` | `/form/name` → `"Alice"` |
+    | `CheckBox` | `value` | Checks the box | `/form/agreed` → `true` |
+    | `ChoicePicker` | `selections` | Selects `"ca"` | `/form/country` → `["ca"]` |
+    | `Slider` | `value` | Drags to `72` | `/settings/volume` → `72` |
+    | `DateTimeInput` | `value` | Picks a date | `/booking/date` → ISO string |
+
+  </Tab>
+  <Tab title="v0.8">
+
+    | Component | Binding property | User action | Data model update |
+    |-----------|----------------|-------------|-------------------|
+    | `TextField` | `text` | Types `"Alice"` | `/form/name` → `"Alice"` |
+    | `CheckBox` | `value` | Checks the box | `/form/agreed` → `true` |
+    | `MultipleChoice` | `selections` | Selects `"ca"` | `/form/country` → `["ca"]` |
+
+  </Tab>
+</Tabs>
+
+---
+
+## Best Practices
+
+**Use granular path updates.** Updating `/user/name` is far more efficient than replacing the entire root `/` object — only the affected components re-render:
+
+```json
+{
+  "version": "v0.9",
+  "updateDataModel": {
+    "surfaceId": "profile",
+    "path": "/user/name",
+    "value": "Alice"
+  }
+}
+```
+
+**Organize the model by domain.** Group related state under a common prefix to make updates predictable:
+
+```json
+{
+  "user":  { "name": "Alice",  "email": "..." },
+  "cart":  { "items": [...],   "total": "..." },
+  "ui":    { "loading": false, "error": null  }
+}
+```
+
+**Pre-format display values on the agent.** A2UI does not support client-side expression evaluation for formatting. Compute display strings before sending:
+
+```json
+{ "price": "$19.99" }
+```
+
+Not:
+
+```json
+{ "price": 19.99 }
+```
+
+<Note>
+  Client-side expressions (v0.9+) are part of the specification but are catalog- and renderer-dependent. Check your catalog definition for supported expression syntax before relying on them.
+</Note>
+
+---
+
+<CardGroup cols={2}>
+  <Card title="Message Reference" icon="envelope" href="/reference/messages">
+    Full schema for updateDataModel and all other A2UI messages.
+  </Card>
+  <Card title="Component Reference" icon="puzzle-piece" href="/reference/components">
+    Which properties on each component support data binding.
+  </Card>
+  <Card title="Catalogs" icon="book" href="/reference/catalogs">
+    Define your own catalog with custom component schemas.
+  </Card>
+  <Card title="Transports" icon="arrow-right-arrow-left" href="/reference/transports">
+    Deliver data model updates over A2A, AG-UI, and more.
+  </Card>
+</CardGroup>

@@ -1,0 +1,410 @@
+---
+title: "A2UI Protocol v0.9.1 — Current Production Release"
+sidebarTitle: "v0.9.1 Spec"
+description: "Full specification for A2UI v0.9.1: message types, flat component format, catalog IDs, data binding, and a complete JSONL stream example."
+---
+
+A2UI v0.9.1 is the **current production release** of the A2UI protocol — a JSON-based, streaming UI protocol that lets AI agents declaratively render native user interfaces by sending a sequence of JSON messages to a client renderer. It introduces the "prompt-first" design philosophy, where the schema and catalog are embedded directly in the LLM's prompt, enabling richer component catalogs and more expressive UI definitions than were possible under the structured-output constraints of v0.8.
+
+<Note>
+  **Status: Current Production Release.** v0.9.1 is stable and recommended for all new projects. v0.9.1 payloads are fully wire-compatible with v0.9 — renderers that accept `"v0.9"` envelopes can process `"v0.9.1"` envelopes without code changes.
+</Note>
+
+## What changed from v0.9
+
+v0.9.1 is a focused patch release with two targeted corrections:
+
+1. **MIME type standardization** — All specification references to the A2UI payload MIME type are updated to `application/a2ui+json`, replacing the legacy `application/json+a2ui` ordering found in some v0.9 drafts.
+2. **Surface ID uniqueness relaxation** — The requirement that `surfaceId` be globally unique for the entire renderer lifetime is removed. It must now only be unique among *currently active* surfaces. Calling `createSurface` for an already-active `surfaceId` without first deleting it remains an error.
+
+<Tip>
+  If you're upgrading from v0.9, your only required action is to update any hardcoded MIME type strings from `application/json+a2ui` to `application/a2ui+json`. No message structure changes are required.
+</Tip>
+
+---
+
+## Protocol overview
+
+The A2UI protocol is a **unidirectional stream** of JSON messages from the agent (server) to the renderer (client). The renderer parses each message, builds a component tree, and renders it progressively. User interactions are returned to the agent over a separate channel (the transport's return path, e.g., A2A action, AG-UI event).
+
+The typical lifecycle of a surface:
+
+<Steps>
+  <Step title="Create Surface">
+    The agent sends a `createSurface` message to initialize a named surface and declare which component catalog it will use.
+  </Step>
+  <Step title="Update Components">
+    One or more `updateComponents` messages provide the flat adjacency-list of component definitions, including a required `root` component.
+  </Step>
+  <Step title="Update Data Model">
+    `updateDataModel` messages populate or update the data that components bind to, without requiring the component tree to be resent.
+  </Step>
+  <Step title="Render">
+    The renderer builds the component tree from the flat list, resolves data bindings, and renders the UI progressively as messages arrive.
+  </Step>
+  <Step title="Dynamic Updates">
+    As the user interacts or new data arrives, the agent sends additional `updateComponents` and `updateDataModel` messages. The renderer patches the UI in place.
+  </Step>
+  <Step title="Delete Surface">
+    When the UI region is no longer needed, the agent sends `deleteSurface` to remove it and free resources.
+  </Step>
+</Steps>
+
+---
+
+## Message types
+
+Every message in the v0.9.1 stream is a JSON object with a top-level `"version": "v0.9.1"` field and exactly one of the four message-type keys below.
+
+### `createSurface`
+
+Signals the renderer to create a new surface. A surface must exist before any `updateComponents` or `updateDataModel` messages can target it. The `surfaceId` and `catalogId` are immutable once a surface is created — to change them, delete the surface and recreate it.
+
+**Properties:**
+
+| Property | Type | Required | Description |
+|---|---|---|---|
+| `surfaceId` | string | ✅ | Unique identifier for the surface among currently active surfaces. |
+| `catalogId` | string | ✅ | URI identifier for the component catalog the agent will use. |
+| `theme` | object | — | Theme parameters (e.g., `primaryColor`) defined in the catalog's theme schema. |
+| `sendDataModel` | boolean | — | If `true`, the renderer sends the full data model in every client-to-server message metadata. Defaults to `false`. |
+
+```json
+{
+  "version": "v0.9.1",
+  "createSurface": {
+    "surfaceId": "user_profile_card",
+    "catalogId": "https://a2ui.org/specification/v0_9_1/catalogs/basic/catalog.json",
+    "theme": {
+      "primaryColor": "#00BFFF"
+    },
+    "sendDataModel": true
+  }
+}
+```
+
+<Note>
+  The `catalogId` is a **string identifier**, not necessarily a live URL. If it is a URL, no resources need to be deployed at that address — it functions as a unique namespace for the catalog.
+</Note>
+
+---
+
+### `updateComponents`
+
+Provides a flat list of component definitions to add to or update within a surface. Components may reference children or data paths that have not yet arrived — renderers must handle this gracefully by showing placeholders (progressive rendering). The component tree requires exactly one component with `id: "root"` to serve as the tree root.
+
+**Properties:**
+
+| Property | Type | Required | Description |
+|---|---|---|---|
+| `surfaceId` | string | ✅ | The target surface. |
+| `components` | array | ✅ | Flat list of component objects. |
+
+Each component in the array has:
+
+- `id` — unique string ID used for parent-child references
+- `component` — **string** type name (e.g., `"Text"`, `"Column"`)
+- Component-specific properties (e.g., `text`, `children`, `value`)
+
+```json
+{
+  "version": "v0.9.1",
+  "updateComponents": {
+    "surfaceId": "user_profile_card",
+    "components": [
+      {
+        "id": "root",
+        "component": "Column",
+        "children": ["user_name", "user_title"]
+      },
+      {
+        "id": "user_name",
+        "component": "Text",
+        "text": "John Doe"
+      },
+      {
+        "id": "user_title",
+        "component": "Text",
+        "text": "Software Engineer"
+      }
+    ]
+  }
+}
+```
+
+---
+
+### `updateDataModel`
+
+Sends or updates data that populates UI components. Updates follow **upsert semantics** at the specified JSON Pointer path:
+
+- If the path exists, the value is replaced.
+- If the path does not exist, it is created.
+- If `value` is omitted, the key at `path` is removed.
+- If `path` is omitted (or `/`), the entire data model is replaced.
+
+**Properties:**
+
+| Property | Type | Required | Description |
+|---|---|---|---|
+| `surfaceId` | string | ✅ | The target surface. |
+| `path` | string | — | JSON Pointer path. Defaults to `/` (root). |
+| `value` | any | — | New value. Omit to delete the key at `path`. |
+
+<Tabs>
+  <Tab title="Update a field">
+    ```json
+    {
+      "version": "v0.9.1",
+      "updateDataModel": {
+        "surfaceId": "user_profile_card",
+        "path": "/user/name",
+        "value": "Jane Doe"
+      }
+    }
+    ```
+  </Tab>
+  <Tab title="Replace entire model">
+    ```json
+    {
+      "version": "v0.9.1",
+      "updateDataModel": {
+        "surfaceId": "surface_123",
+        "value": {
+          "user": { "firstName": "Alice", "lastName": "Smith" },
+          "preferences": { "theme": "dark" }
+        }
+      }
+    }
+    ```
+  </Tab>
+  <Tab title="Remove a field">
+    ```json
+    {
+      "version": "v0.9.1",
+      "updateDataModel": {
+        "surfaceId": "surface_123",
+        "path": "/user/tempData"
+      }
+    }
+    ```
+  </Tab>
+</Tabs>
+
+---
+
+### `deleteSurface`
+
+Instructs the renderer to remove a surface and all its components and data.
+
+```json
+{
+  "version": "v0.9.1",
+  "deleteSurface": {
+    "surfaceId": "user_profile_card"
+  }
+}
+```
+
+---
+
+## Component format
+
+In v0.9.1, the component type is expressed as a plain **string value** on the `component` key. This is a key structural difference from v0.8, which used a nested object format (`{ "Text": { ... } }`).
+
+<Tabs>
+  <Tab title="v0.9.1 format (flat)">
+    ```json
+    {
+      "id": "greeting",
+      "component": "Text",
+      "text": "Hello, World!"
+    }
+    ```
+  </Tab>
+  <Tab title="v0.8 format (nested object)">
+    ```json
+    {
+      "id": "greeting",
+      "component": {
+        "Text": {
+          "text": { "literalString": "Hello, World!" }
+        }
+      }
+    }
+    ```
+  </Tab>
+</Tabs>
+
+The flat format is more LLM-friendly and requires less structure for the model to maintain across generations. All component properties sit at the same level as `id` and `component`.
+
+---
+
+## Catalog and schema structure
+
+A2UI v0.9.1 separates the protocol into three interacting JSON schemas:
+
+- **`common_types.json`** — reusable primitives: `DynamicString`, `DynamicNumber`, `DynamicBoolean`, `DynamicStringList`, `ChildList`, `ComponentId`
+- **`server_to_client.json`** — the envelope schema that dispatches messages; catalog-agnostic via a `catalog.json` placeholder
+- **`catalogs/basic/catalog.json`** — the baseline component and function definitions, theme schema, and any component
+
+The envelope schema references components with `$ref: "catalog.json#/$defs/anyComponent"`. To validate against the Basic Catalog, map `catalog.json` → `catalogs/basic/catalog.json`. To validate against your own catalog, substitute your catalog file.
+
+### The Basic Catalog
+
+The v0.9.1 Basic Catalog includes the following components and functions:
+
+**Components**
+
+| Component | Description |
+|---|---|
+| `Text` | Displays text; supports Markdown. |
+| `Image` | Displays an image from a URL. |
+| `Icon` | Renders a named system icon. |
+| `Video` | Displays a video from a URL. |
+| `AudioPlayer` | Audio content player. |
+| `Row` | Horizontal layout container. |
+| `Column` | Vertical layout container. |
+| `List` | Scrollable list of components. |
+| `Card` | Styled card container. |
+| `Tabs` | Tabbed container with titled panes. |
+| `Divider` | Horizontal or vertical line. |
+| `Modal` | Overlay dialog. |
+| `Button` | Clickable button; dispatches actions. |
+| `CheckBox` | Boolean checkbox with label. |
+| `TextField` | Text input field. |
+| `DateTimeInput` | Date and/or time input. |
+| `ChoicePicker` | Single or multi-select options. |
+| `Slider` | Numeric range slider. |
+
+**Functions**
+
+| Function | Description |
+|---|---|
+| `required` | Not null, undefined, or empty. |
+| `regex` | Matches a regular expression. |
+| `length` | String length constraints. |
+| `numeric` | Numeric range constraints. |
+| `email` | Valid email address format. |
+| `formatString` | String interpolation with data bindings and functions. |
+| `formatNumber` | Number formatting. |
+| `formatCurrency` | Currency string formatting. |
+| `formatDate` | Date/time pattern formatting. |
+| `pluralize` | Count-based localized string selection. |
+| `openUrl` | Opens a URL in the browser. |
+| `and` / `or` / `not` | Boolean logic operations. |
+
+### Theme properties
+
+The Basic Catalog exposes the following theme fields in `createSurface.theme`:
+
+| Property | Type | Description |
+|---|---|---|
+| `primaryColor` | string | Hex color code used for highlights and primary buttons. |
+| `iconUrl` | URI | Logo or avatar image URL to identify the agent. |
+| `agentDisplayName` | string | Agent name displayed next to the surface. |
+
+---
+
+## Data binding
+
+Components connect to the data model through `Dynamic*` types. A property like `text` on a `Text` component accepts either a **literal value** or a **path binding** (JSON Pointer per RFC 6901):
+
+```json
+{ "path": "/user/name" }
+```
+
+Paths starting with `/` are **absolute** — they resolve from the data model root regardless of context. Paths *without* a leading `/` are **relative** — they resolve against the current collection scope when a container iterates a list via the `template` feature of `ChildList`.
+
+<Note>
+  During the initial streaming phase, data paths may resolve to `undefined` if the `updateDataModel` message has not yet arrived. Renderers should display placeholders rather than errors to support progressive rendering.
+</Note>
+
+Input components (`TextField`, `CheckBox`, `Slider`, `ChoicePicker`, `DateTimeInput`) establish **two-way binding**: they read from the data model and immediately write back to the local data model on user interaction. These writes are local — they are only sent to the server when the user triggers an action (e.g., a button click).
+
+---
+
+## Complete JSONL stream example
+
+The following is a complete four-message stream that creates a contact form surface, populates it with components and data, and then removes it. Each line is a separate JSON object.
+
+```json
+{"version": "v0.9.1", "createSurface": {"surfaceId": "contact_form_1", "catalogId": "https://a2ui.org/specification/v0_9_1/catalogs/basic/catalog.json"}}
+{"version": "v0.9.1", "updateComponents": {"surfaceId": "contact_form_1", "components": [{"id": "root", "component": "Card", "child": "form_container"}, {"id": "form_container", "component": "Column", "children": ["header_row", "first_name_field", "email_field", "submit_button"], "justify": "start", "align": "stretch"}, {"id": "header_row", "component": "Row", "children": ["header_icon", "header_text"], "align": "center"}, {"id": "header_icon", "component": "Icon", "name": "mail"}, {"id": "header_text", "component": "Text", "text": "# Contact Us", "variant": "h2"}, {"id": "first_name_field", "component": "TextField", "label": "First Name", "value": {"path": "/contact/firstName"}, "variant": "shortText"}, {"id": "email_field", "component": "TextField", "label": "Email", "value": {"path": "/contact/email"}, "variant": "shortText", "checks": [{"call": "required", "args": {"value": {"path": "/contact/email"}}, "message": "Email is required."}, {"call": "email", "args": {"value": {"path": "/contact/email"}}, "message": "Please enter a valid email address."}]}, {"id": "submit_button_label", "component": "Text", "text": "Send Message"}, {"id": "submit_button", "component": "Button", "child": "submit_button_label", "variant": "primary", "action": {"event": {"name": "submitContactForm", "context": {"formId": "contact_form_1", "email": {"path": "/contact/email"}}}}}]}}
+{"version": "v0.9.1", "updateDataModel": {"surfaceId": "contact_form_1", "path": "/contact", "value": {"firstName": "John", "email": "john.doe@example.com"}}}
+{"version": "v0.9.1", "deleteSurface": {"surfaceId": "contact_form_1"}}
+```
+
+---
+
+## Client-side validation
+
+Components and buttons can declare `checks` — a list of `FunctionCall` objects that run client-side. For input components, failed checks display error messages inline. For buttons, any failing check disables the button.
+
+```json
+{
+  "id": "email_field",
+  "component": "TextField",
+  "label": "Email",
+  "value": { "path": "/contact/email" },
+  "checks": [
+    {
+      "call": "required",
+      "args": { "value": { "path": "/contact/email" } },
+      "message": "Email is required."
+    },
+    {
+      "call": "email",
+      "args": { "value": { "path": "/contact/email" } },
+      "message": "Please enter a valid email address."
+    }
+  ]
+}
+```
+
+### Standard validation error format
+
+When schema validation fails (e.g., in the prompt-generate-validate loop), the system reports errors in this format:
+
+```json
+{
+  "error": {
+    "code": "VALIDATION_FAILED",
+    "surfaceId": "user_profile_card",
+    "path": "/components/0/text",
+    "message": "Expected stringOrPath, got integer"
+  }
+}
+```
+
+---
+
+## Transport
+
+A2UI v0.9.1 is transport-agnostic. The protocol defines the JSON message contract; the transport layer is responsible for ordered delivery, message framing, metadata support, and (optionally) a bidirectional channel for client-to-server `action` messages.
+
+Common transport bindings:
+
+- **AG-UI** — primary integration path for agent–frontend communication
+- **A2A (Agent-to-Agent)** — A2UI envelopes as A2A message part payloads; capabilities via Agent Card metadata
+- **MCP** — delivered as tool outputs or resource subscriptions
+- **SSE + JSON-RPC**, **WebSockets**, **REST**
+
+---
+
+## Related pages
+
+<CardGroup cols={2}>
+  <Card title="Migration: v0.9 → v0.9.1" icon="arrow-up-right" href="/specification/v0-9-1#what-changed-from-v09">
+    The two patch-level changes in v0.9.1 and what they mean for implementers.
+  </Card>
+  <Card title="v1.0 Specification" icon="flask" href="/specification/v1-0">
+    Release candidate introducing `actionResponse` synchronous RPC and single-message UI instantiation.
+  </Card>
+  <Card title="v0.8 Legacy Specification" icon="archive" href="/specification/v0-8-legacy">
+    Legacy nested-object component format and `beginRendering` / `surfaceUpdate` message types.
+  </Card>
+  <Card title="Basic Catalog Implementation Guide" icon="book-open" href="/reference/catalogs">
+    How to build a renderer against the v0.9.1 Basic Catalog components and functions.
+  </Card>
+</CardGroup>

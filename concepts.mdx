@@ -1,0 +1,466 @@
+---
+title: "A2UI Core Concepts: Architecture, Messages, and Data"
+sidebarTitle: "Core Concepts"
+description: "Understand A2UI's three-layer architecture — streaming messages, declarative components, and reactive data binding — plus surfaces, catalogs, and transports."
+---
+
+A2UI is built on three interlocking ideas that together allow AI agents to produce rich, interactive UIs safely and portably. This page explains those ideas from the ground up: how the architecture is layered, what message types agents send, how components are structured, how data flows reactively through a surface, what catalogs are and why they matter for security, and how A2UI messages travel over different transports. Understanding these concepts will make every other part of the documentation click into place.
+
+## The Three-Layer Architecture
+
+Every A2UI interaction is organized into three distinct layers:
+
+```
+┌───────────────────────────────────────────────┐
+│  Layer 1 — Streaming Messages                 │
+│  JSON objects sent from agent to client        │
+│  (createSurface, updateComponents, …)          │
+├───────────────────────────────────────────────┤
+│  Layer 2 — Declarative Components             │
+│  Flat adjacency-list describing the UI tree   │
+│  (Button, TextField, Card, Column, …)          │
+├───────────────────────────────────────────────┤
+│  Layer 3 — Data Binding                       │
+│  Reactive JSON Pointer paths connect          │
+│  components to mutable application state      │
+└───────────────────────────────────────────────┘
+```
+
+**Why three layers?** Separating message transport, UI structure, and application state means each layer can change independently. The agent can update the data model without regenerating the component tree; the client can restyle a surface without the agent knowing; and the same component tree can render across platforms by swapping only the renderer.
+
+---
+
+## Message Types
+
+All A2UI communication is a sequence of self-contained JSON messages (streamed as **JSON Lines / JSONL**). The set of message types differs slightly between protocol versions:
+
+<Tabs>
+  <Tab title="v0.9 (Stable)">
+    | Message | Purpose |
+    |---|---|
+    | `createSurface` | Create a new surface and declare which catalog the agent will use |
+    | `updateComponents` | Add or update UI components in a surface |
+    | `updateDataModel` | Update application state at a specific JSON Pointer path |
+    | `deleteSurface` | Remove a surface and release its resources |
+
+    All v0.9 messages include a top-level `version` field. `createSurface` replaces the old `beginRendering` — surface creation and render initiation are now a single, explicit step.
+
+    ```json
+    { "version": "v0.9.1", "createSurface": {
+        "surfaceId": "booking",
+        "catalogId": "https://a2ui.org/specification/v0_9_1/catalogs/basic/catalog.json"
+    }}
+    ```
+
+    ```json
+    { "version": "v0.9.1", "updateComponents": {
+        "surfaceId": "booking",
+        "components": [
+          { "id": "header", "component": "Text", "text": "Book Your Table", "variant": "h1" },
+          { "id": "date",   "component": "DateTimeInput", "value": { "path": "/booking/date" }, "enableDate": true }
+        ]
+    }}
+    ```
+
+    ```json
+    { "version": "v0.9.1", "updateDataModel": {
+        "surfaceId": "booking",
+        "path": "/booking",
+        "value": { "date": "2025-12-16T19:00:00Z" }
+    }}
+    ```
+  </Tab>
+  <Tab title="v0.8 (Legacy)">
+    | Message | Purpose |
+    |---|---|
+    | `surfaceUpdate` | Define or update UI components in a surface |
+    | `dataModelUpdate` | Update application state |
+    | `beginRendering` | Signal the client to start rendering (also implicitly creates the surface) |
+    | `deleteSurface` | Remove a surface |
+
+    v0.8 messages do not include a `version` field. The `surfaceUpdate` message uses deeply nested component objects rather than flat records.
+
+    ```json
+    { "surfaceUpdate": {
+        "surfaceId": "booking",
+        "components": [
+          { "id": "header", "component": { "Text": {
+              "text": { "literalString": "Book Your Table" }, "usageHint": "h1" } } },
+          { "id": "date",   "component": { "DateTimeInput": {
+              "value": { "path": "/booking/date" }, "enableDate": true } } }
+        ]
+    }}
+    ```
+
+    ```json
+    { "dataModelUpdate": {
+        "surfaceId": "booking",
+        "contents": [{ "key": "booking", "valueMap": [
+          { "key": "date", "valueString": "2025-12-16T19:00:00Z" }
+        ]}]
+    }}
+    ```
+
+    ```json
+    { "beginRendering": { "surfaceId": "booking", "root": "header" } }
+    ```
+  </Tab>
+</Tabs>
+
+<Info>
+  For complete field-level documentation of every message type, see the [Message Reference](/reference/messages).
+</Info>
+
+---
+
+## Surfaces
+
+A **surface** is a named, isolated area of UI that an agent creates and manages. Think of it as a canvas: a dialog, a sidebar panel, a main content area, or a card embedded in a chat stream. Each surface has its own:
+
+- **`surfaceId`** — a string that uniquely identifies the surface; every message that affects a surface must include this ID.
+- **Component tree** — the flat list of components that make up the surface.
+- **Data model** — an independent JSON object holding that surface's application state.
+
+Surfaces are flat — they cannot nest inside one another. An orchestrator managing multiple agents can display several surfaces simultaneously, each scoped to a different `surfaceId`, without any risk of state collision.
+
+<Note>
+  When the agent sends `deleteSurface`, the client removes the surface and its data model from memory. This is the canonical signal that a workflow step is complete.
+</Note>
+
+---
+
+## Components: The Adjacency List Model
+
+A2UI represents component hierarchies as a **flat list of nodes with ID references** — an adjacency list — rather than a nested JSON tree. This is a deliberate design choice.
+
+### Why flat lists beat nested trees
+
+| | Nested tree | Adjacency list (A2UI) |
+|---|---|---|
+| **LLM generation** | Must track indentation depth across the whole response | Each component is an independent, flat object |
+| **Streaming** | Hard to render partial output; tree isn't valid until closed | Any individual component can be rendered as soon as it arrives |
+| **Incremental update** | Replacing one node requires resending its entire subtree | Update any node by `id`; the rest is untouched |
+| **Error correction** | Malformed nesting can break the entire payload | A malformed component doesn't affect its siblings |
+
+### Component anatomy
+
+Every component has three required fields:
+
+1. **`id`** — a unique string identifier within the surface (use descriptive names like `"user-profile-card"`, not `"c1"`).
+2. **`component`** — the component type string, matching a name in the active catalog (`"Text"`, `"Button"`, `"DateTimeInput"`, etc.).
+3. **Properties** — zero or more type-specific fields, either as literal values or reactive data-binding paths.
+
+<Tabs>
+  <Tab title="v0.9 (Stable)">
+    A flat component list using the v0.9 format. Parent–child relationships are expressed as arrays of child IDs:
+
+    ```json
+    {
+      "version": "v0.9.1",
+      "updateComponents": {
+        "surfaceId": "main",
+        "components": [
+          { "id": "root",        "component": "Column",  "children": ["greeting", "buttons"] },
+          { "id": "greeting",    "component": "Text",    "text": "Hello!" },
+          { "id": "buttons",     "component": "Row",     "children": ["cancel-btn", "ok-btn"] },
+          { "id": "cancel-btn",  "component": "Button",  "child": "cancel-text", "action": { "event": { "name": "cancel" } } },
+          { "id": "cancel-text", "component": "Text",    "text": "Cancel" },
+          { "id": "ok-btn",      "component": "Button",  "child": "ok-text",     "action": { "event": { "name": "ok" } } },
+          { "id": "ok-text",     "component": "Text",    "text": "OK" }
+        ]
+      }
+    }
+    ```
+  </Tab>
+  <Tab title="v0.8 (Legacy)">
+    The same structure in v0.8 format. Children are declared via `"explicitList"` and component types use nested objects:
+
+    ```json
+    {
+      "surfaceUpdate": {
+        "components": [
+          { "id": "root",        "component": { "Column": { "children": { "explicitList": ["greeting", "buttons"] } } } },
+          { "id": "greeting",    "component": { "Text":   { "text": { "literalString": "Hello!" } } } },
+          { "id": "buttons",     "component": { "Row":    { "children": { "explicitList": ["cancel-btn", "ok-btn"] } } } },
+          { "id": "cancel-btn",  "component": { "Button": { "child": "cancel-text", "action": { "name": "cancel" } } } },
+          { "id": "cancel-text", "component": { "Text":   { "text": { "literalString": "Cancel" } } } },
+          { "id": "ok-btn",      "component": { "Button": { "child": "ok-text",     "action": { "name": "ok" } } } },
+          { "id": "ok-text",     "component": { "Text":   { "text": { "literalString": "OK" } } } }
+        ]
+      }
+    }
+    ```
+  </Tab>
+</Tabs>
+
+### Static vs. dynamic children
+
+Children can be a fixed list (`"children": ["a", "b"]`) or a **template** that generates one child instance per item in a data array:
+
+<Tabs>
+  <Tab title="v0.9 (Stable)">
+    ```json
+    {
+      "id": "product-list",
+      "component": "Column",
+      "children": {
+        "path": "/products",
+        "componentId": "product-card"
+      }
+    }
+    ```
+
+    For every item in the `/products` array, the renderer instantiates `product-card` with that item's data in scope. Adding or removing items from `/products` automatically adds or removes rendered cards.
+  </Tab>
+  <Tab title="v0.8 (Legacy)">
+    ```json
+    {
+      "id": "product-list",
+      "component": {
+        "Column": {
+          "children": {
+            "template": {
+              "dataBinding": "/products",
+              "componentId": "product-card"
+            }
+          }
+        }
+      }
+    }
+    ```
+  </Tab>
+</Tabs>
+
+<Info>
+  For the full component catalog with properties and live examples, see the [Component Reference](/reference/components).
+</Info>
+
+---
+
+## Data Binding
+
+A2UI separates **UI structure** (what the interface looks like) from **application state** (what data it displays). Components connect to state via **JSON Pointer paths** ([RFC 6901](https://tools.ietf.org/html/rfc6901)).
+
+### The data model
+
+Each surface maintains an independent JSON object as its data model:
+
+```json
+{
+  "user":       { "name": "Alice", "email": "alice@example.com" },
+  "reservation": { "date": "2025-12-16T19:00:00Z", "guests": 2 },
+  "cart":        { "items": [{ "name": "Widget", "price": 9.99 }], "total": 9.99 }
+}
+```
+
+JSON Pointer path syntax:
+
+| Path | Resolves to |
+|---|---|
+| `/user/name` | `"Alice"` |
+| `/reservation/guests` | `2` |
+| `/cart/items/0/name` | `"Widget"` |
+
+### Reactive binding
+
+When a component's property references a path, it updates automatically whenever that path changes — no component update message is needed:
+
+<Tabs>
+  <Tab title="v0.9 (Stable)">
+    ```json
+    { "id": "status-text", "component": "Text", "text": { "path": "/order/status" } }
+    ```
+
+    When the agent sends:
+
+    ```json
+    { "version": "v0.9.1", "updateDataModel": {
+        "surfaceId": "main",
+        "path": "/order/status",
+        "value": "Shipped"
+    }}
+    ```
+
+    The `status-text` component re-renders with "Shipped" — automatically, without any `updateComponents` message.
+  </Tab>
+  <Tab title="v0.8 (Legacy)">
+    ```json
+    { "id": "status-text", "component": { "Text": { "text": { "path": "/order/status" } } } }
+    ```
+
+    When the agent sends:
+
+    ```json
+    { "dataModelUpdate": {
+        "surfaceId": "main",
+        "contents": [{ "key": "order", "valueMap": [{ "key": "status", "valueString": "Shipped" }] }]
+    }}
+    ```
+  </Tab>
+</Tabs>
+
+### Bidirectional binding for inputs
+
+Input components (TextField, CheckBox, ChoicePicker, DateTimeInput) write user interactions back to the data model automatically. The agent can read the current value of any bound path when the user triggers an action:
+
+| Component (v0.9) | Binding example | User action | Data model update |
+|---|---|---|---|
+| `TextField` | `"value": { "path": "/form/name" }` | Types "Alice" | `/form/name` → `"Alice"` |
+| `CheckBox` | `"value": { "path": "/form/agreed" }` | Checks box | `/form/agreed` → `true` |
+| `ChoicePicker` | `"value": { "path": "/form/country" }` | Selects "Canada" | `/form/country` → `["ca"]` |
+
+<Info>
+  For full data binding syntax and advanced patterns (scoped template paths, nested objects), see the [Data Binding Reference](/reference/data-binding).
+</Info>
+
+---
+
+## Catalogs
+
+A **catalog** is a JSON Schema file that defines exactly which component types, properties, functions, and theme values the agent is permitted to use on a given surface. It is the primary security boundary in A2UI.
+
+### Why catalogs matter
+
+Without a catalog, an agent could request arbitrary components — including ones the client doesn't implement, ones that conflict with the host app's design system, or ones that expose unintended behaviors. With a catalog:
+
+- **The client is in control.** The agent can only request what the client has pre-approved and implemented.
+- **Payloads are validated.** Both the agent (pre-send) and client (on-receive) validate every A2UI message against the catalog schema.
+- **Design consistency is enforced.** A production catalog mirrors the host app's design system — `PrimaryButton`, `HeroCard`, `DataGrid` — not generic primitives.
+
+### The Basic Catalog
+
+For getting started quickly, the A2UI team maintains a **Basic Catalog** — a pre-defined schema with general-purpose primitives (Button, TextField, Card, Column, Row, Text, DateTimeInput, etc.). It has open-source renderers for Lit, Angular, and React.
+
+Reference it in `createSurface` to use the Basic Catalog:
+
+```json
+{
+  "version": "v0.9.1",
+  "createSurface": {
+    "surfaceId": "my-surface",
+    "catalogId": "https://a2ui.org/specification/v0_9_1/catalogs/basic/catalog.json"
+  }
+}
+```
+
+### Catalog negotiation
+
+Because clients and agents may support different catalogs, A2UI defines a negotiation handshake:
+
+<Steps>
+  <Step title="Client advertises supported catalogs">
+    The client sends a prioritized list of `supportedCatalogIds` in the metadata of every message it sends to the agent:
+
+    ```json
+    {
+      "parts": [{ "text": "Book a table for 2" }],
+      "metadata": {
+        "a2uiClientCapabilities": {
+          "supportedCatalogIds": [
+            "https://example.com/catalogs/my-app/v2/catalog.json",
+            "https://a2ui.org/specification/v0_9_1/catalogs/basic/catalog.json"
+          ]
+        }
+      }
+    }
+    ```
+  </Step>
+  <Step title="Agent selects the best match">
+    When creating a surface, the agent picks the highest-priority catalog from the client's list that it is capable of generating. This choice is locked for the lifetime of that surface. If no compatible catalog is found, the agent sends no UI.
+  </Step>
+  <Step title="Client validates and renders">
+    The client validates the incoming A2UI payload against its local copy of the selected catalog. Validation errors are reported back to the agent using a `VALIDATION_FAILED` error message so the agent can self-correct.
+  </Step>
+</Steps>
+
+### Custom catalogs
+
+Most production applications define their own catalog that matches their design system. A minimal custom catalog looks like this:
+
+```json
+{
+  "$id": "https://example.com/catalogs/my-app/v1/catalog.json",
+  "components": {
+    "HeroCard": {
+      "type": "object",
+      "description": "A large featured card with image and CTA.",
+      "properties": {
+        "title":    { "type": "string" },
+        "subtitle": { "type": "string" },
+        "imageUrl": { "type": "string" },
+        "ctaLabel": { "type": "string" }
+      },
+      "required": ["title", "ctaLabel"]
+    }
+  }
+}
+```
+
+<Tip>
+  The `catalogId` URI is used purely as a stable, human-readable identifier for negotiation — **not** for runtime fetching. Both agent and client must have the catalog definition available at build/deploy time.
+</Tip>
+
+<Info>
+  For catalog versioning, graceful degradation, and the full linking workflow, see the [Catalogs Reference](/reference/catalogs).
+</Info>
+
+---
+
+## Transports
+
+A2UI is transport-agnostic. Any mechanism that can carry JSON messages from agent to client works. The protocol defines the message format; the transport is the pipe.
+
+| Transport | Best for |
+|---|---|
+| **A2A Protocol** | Multi-agent systems and remote agents; standardized agent-to-agent communication |
+| **AG-UI (CopilotKit)** | Bidirectional real-time agent–UI communication with state sync; use AG-UI as the pipe, A2UI as the payload |
+| **Server-Sent Events (SSE)** | One-way streaming over HTTP; simple and broadly supported |
+| **WebSocket** | Persistent bidirectional connections; ideal when the client also needs to send frequent updates |
+| **REST / HTTP** | Simple request-response for non-streaming use cases |
+| **Custom** | gRPC, message queues, in-process — if it carries JSON, it works |
+
+<Note>
+  The restaurant finder demo uses the **A2A Protocol**: the Python agent exposes an A2A endpoint and the Lit client connects to it. For CopilotKit-based setups, AG-UI carries the A2UI messages transparently.
+</Note>
+
+<Info>
+  For implementation details on each transport adapter, see the [Transports Reference](/reference/transports).
+</Info>
+
+---
+
+## Putting It All Together
+
+Here is a complete lifecycle for a restaurant booking request, showing all three layers working together:
+
+1. **Agent creates the surface** (`createSurface`) — declares the catalog; client allocates a new surface context.
+2. **Agent defines the UI** (`updateComponents`) — streams a flat list of component records; client renders them progressively.
+3. **Agent populates state** (`updateDataModel`) — sends initial field values; bound components update automatically.
+4. **User edits a field** — the TextField writes the new value back to the data model; no agent message needed.
+5. **User clicks Submit** — the Button fires an `action` event with the current data model snapshot; the agent receives it.
+6. **Agent confirms** — either updates the surface to show a confirmation state or sends `deleteSurface` to close it.
+
+---
+
+## Concept Reference Cards
+
+<CardGroup cols={2}>
+  <Card title="Message Reference" icon="file-code" href="/reference/messages">
+    Full field-level specification for all message types across v0.8 and v0.9.
+  </Card>
+  <Card title="Component Reference" icon="grid" href="/reference/components">
+    Every component in the Basic Catalog with properties, examples, and rendering notes.
+  </Card>
+  <Card title="Data Binding Reference" icon="link" href="/reference/data-binding">
+    JSON Pointer path syntax, reactive binding patterns, input bindings, and dynamic lists.
+  </Card>
+  <Card title="Catalogs Reference" icon="book" href="/reference/catalogs">
+    Catalog schema, negotiation protocol, versioning strategy, and custom catalog guide.
+  </Card>
+  <Card title="Transports Reference" icon="arrow-right-arrow-left" href="/reference/transports">
+    A2A, AG-UI, SSE, WebSocket, and custom transport integration details.
+  </Card>
+  <Card title="Glossary" icon="spell-check" href="/reference/messages">
+    Short definitions for all A2UI protocol terms: surface, catalog, data model, renderer, agent turn, and more.
+  </Card>
+</CardGroup>

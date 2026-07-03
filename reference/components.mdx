@@ -1,0 +1,915 @@
+---
+title: "A2UI Component Reference: Basic Catalog Gallery"
+sidebarTitle: "Components"
+description: "Full reference for every component in the A2UI basic catalog—layout, display, input, and list—with properties and JSON examples for v0.9 and v0.8."
+---
+
+A2UI components are declared as flat objects in an **adjacency list** rather than a nested JSON tree. Each component carries a unique `id`, a `component` type string (v0.9) or wrapper object (v0.8), and its properties at the top level. Parent components reference their children by ID, so any component can be updated independently without touching the rest of the tree.
+
+The components documented here are part of the **Basic Catalog** — a general-purpose catalog maintained by the A2UI team at:
+
+```
+https://a2ui.org/specification/v0_9_1/catalogs/basic/catalog.json
+```
+
+<Note>
+  All components share three universal properties: `id` (required, unique within the surface), `accessibility` (optional, for label and role hints), and `weight` (optional, flex-grow value when inside a `Row` or `Column`).
+</Note>
+
+---
+
+## Version Differences at a Glance
+
+The component catalogue is largely the same across v0.8 and v0.9. The structural differences are:
+
+| Aspect | v0.8 | v0.9 |
+|--------|------|------|
+| Component type declaration | `"component": { "Text": { ... } }` | `"component": "Text", ...props` |
+| String literals | `{ "literalString": "Hello" }` | `"Hello"` |
+| Static children | `{ "explicitList": ["a", "b"] }` | `["a", "b"]` |
+| Dynamic children | `{ "template": { "dataBinding": "/items", "componentId": "tpl" } }` | `{ "path": "/items", "componentId": "tpl" }` |
+| Data binding | `{ "path": "/data" }` | `{ "path": "/data" }` (same) |
+| Text/image styling | `usageHint` | `variant` |
+| Button styling | `primary: true` | `variant: "primary"` |
+| Action format | `{ "name": "..." }` | `{ "event": { "name": "..." } }` |
+| Choice component | `MultipleChoice` | `ChoicePicker` |
+| Layout alignment | `distribution`, `alignment` | `justify`, `align` |
+| TextField value prop | `text` | `value` |
+
+---
+
+## Layout Components
+
+Layout components arrange their children visually. Children are always referenced by ID — never nested inline.
+
+<Accordion title="Row — horizontal layout container">
+
+Arranges child components left-to-right in a horizontal line.
+
+<Tabs>
+  <Tab title="v0.9">
+
+    **Properties**
+
+    <ParamField body="children" type="array | object">
+      Static: array of child IDs. Dynamic: `{ "path": "/items", "componentId": "template-id" }`.
+    </ParamField>
+
+    <ParamField body="justify" type="string">
+      Main-axis alignment. Values: `start`, `center`, `end`, `spaceBetween`, `spaceAround`.
+    </ParamField>
+
+    <ParamField body="align" type="string">
+      Cross-axis alignment. Values: `start`, `center`, `end`, `stretch`.
+    </ParamField>
+
+    ```json
+    {
+      "id": "toolbar",
+      "component": "Row",
+      "children": ["btn-cancel", "btn-ok"],
+      "justify": "spaceBetween",
+      "align": "center"
+    }
+    ```
+
+  </Tab>
+  <Tab title="v0.8">
+
+    **Properties:** `children` (`explicitList` or `template`), `distribution`, `alignment`
+
+    ```json
+    {
+      "id": "toolbar",
+      "component": {
+        "Row": {
+          "children": { "explicitList": ["btn-cancel", "btn-ok"] },
+          "distribution": "spaceBetween",
+          "alignment": "center"
+        }
+      }
+    }
+    ```
+
+  </Tab>
+</Tabs>
+</Accordion>
+
+<Accordion title="Column — vertical layout container">
+
+Arranges child components top-to-bottom in a vertical stack.
+
+<Tabs>
+  <Tab title="v0.9">
+
+    **Properties**
+
+    <ParamField body="children" type="array | object">
+      Static: array of child IDs. Dynamic: `{ "path": "/items", "componentId": "template-id" }`.
+    </ParamField>
+
+    <ParamField body="justify" type="string">
+      Main-axis alignment. Values: `start`, `center`, `end`, `spaceBetween`, `spaceAround`.
+    </ParamField>
+
+    <ParamField body="align" type="string">
+      Cross-axis alignment. Values: `start`, `center`, `end`, `stretch`.
+    </ParamField>
+
+    ```json
+    {
+      "id": "content",
+      "component": "Column",
+      "children": ["header", "body", "footer"],
+      "justify": "start",
+      "align": "stretch"
+    }
+    ```
+
+  </Tab>
+  <Tab title="v0.8">
+
+    ```json
+    {
+      "id": "content",
+      "component": {
+        "Column": {
+          "children": { "explicitList": ["header", "body", "footer"] },
+          "distribution": "start",
+          "alignment": "stretch"
+        }
+      }
+    }
+    ```
+
+  </Tab>
+</Tabs>
+</Accordion>
+
+<Accordion title="Stack — layered overlay container">
+
+Layers children on top of one another (z-axis stacking). Useful for overlays and badges.
+
+<Tabs>
+  <Tab title="v0.9">
+
+    <ParamField body="children" type="array">
+      Array of child component IDs, rendered in order from bottom to top.
+    </ParamField>
+
+    ```json
+    {
+      "id": "overlay-stack",
+      "component": "Stack",
+      "children": ["background-image", "overlay-text"]
+    }
+    ```
+
+  </Tab>
+  <Tab title="v0.8">
+
+    ```json
+    {
+      "id": "overlay-stack",
+      "component": {
+        "Stack": {
+          "children": { "explicitList": ["background-image", "overlay-text"] }
+        }
+      }
+    }
+    ```
+
+  </Tab>
+</Tabs>
+</Accordion>
+
+<Accordion title="Padding — spacing wrapper">
+
+Wraps a single child with configurable inset padding.
+
+<Tabs>
+  <Tab title="v0.9">
+
+    <ParamField body="child" type="string" required>
+      ID of the single child component.
+    </ParamField>
+
+    <ParamField body="padding" type="number | object">
+      Uniform padding value or `{ top, right, bottom, left }` object.
+    </ParamField>
+
+    ```json
+    {
+      "id": "padded-card",
+      "component": "Padding",
+      "child": "info-card",
+      "padding": 16
+    }
+    ```
+
+  </Tab>
+  <Tab title="v0.8">
+
+    ```json
+    {
+      "id": "padded-card",
+      "component": {
+        "Padding": {
+          "child": "info-card",
+          "padding": 16
+        }
+      }
+    }
+    ```
+
+  </Tab>
+</Tabs>
+</Accordion>
+
+---
+
+## Display Components
+
+Display components render content but do not accept user input.
+
+<Accordion title="Text — text display with variant styling">
+
+Renders a string with optional typographic styling.
+
+<Tabs>
+  <Tab title="v0.9">
+
+    <ParamField body="text" type="string | DataBinding" required>
+      The text content. Use a plain string for a literal value, or `{ "path": "/pointer" }` to bind to the data model.
+    </ParamField>
+
+    <ParamField body="variant" type="string">
+      Typographic hint. Values: `h1`, `h2`, `h3`, `h4`, `h5`, `caption`, `body`.
+    </ParamField>
+
+    ```json
+    {
+      "id": "page-title",
+      "component": "Text",
+      "text": "Flight Status",
+      "variant": "h1"
+    }
+    ```
+
+    **Data-bound example:**
+
+    ```json
+    {
+      "id": "status-label",
+      "component": "Text",
+      "text": { "path": "/order/status" },
+      "variant": "body"
+    }
+    ```
+
+  </Tab>
+  <Tab title="v0.8">
+
+    Uses `usageHint` instead of `variant`. String literals must be wrapped in `{ "literalString": "..." }`.
+
+    ```json
+    {
+      "id": "page-title",
+      "component": {
+        "Text": {
+          "text": { "literalString": "Flight Status" },
+          "usageHint": "h1"
+        }
+      }
+    }
+    ```
+
+  </Tab>
+</Tabs>
+</Accordion>
+
+<Accordion title="Image — URL-based image display">
+
+Renders an image from a URL with optional fit and display variant.
+
+<Tabs>
+  <Tab title="v0.9">
+
+    <ParamField body="url" type="string | DataBinding" required>
+      Image URL, or a data binding to a path that holds the URL string.
+    </ParamField>
+
+    <ParamField body="fit" type="string">
+      Sizing behavior. Values: `contain`, `cover`, `fill`, `none`.
+    </ParamField>
+
+    <ParamField body="variant" type="string">
+      Display hint (e.g., `hero`, `thumbnail`, `avatar`).
+    </ParamField>
+
+    ```json
+    {
+      "id": "hero-image",
+      "component": "Image",
+      "url": "https://example.com/hero.png",
+      "fit": "cover",
+      "variant": "hero"
+    }
+    ```
+
+  </Tab>
+  <Tab title="v0.8">
+
+    Uses `usageHint` instead of `variant`.
+
+    ```json
+    {
+      "id": "hero-image",
+      "component": {
+        "Image": {
+          "url": { "literalString": "https://example.com/hero.png" },
+          "fit": "cover",
+          "usageHint": "hero"
+        }
+      }
+    }
+    ```
+
+  </Tab>
+</Tabs>
+</Accordion>
+
+<Accordion title="Divider — visual separator">
+
+Renders a horizontal or vertical separator line between sections.
+
+<Tabs>
+  <Tab title="v0.9">
+
+    <ParamField body="axis" type="string">
+      Orientation of the divider. Values: `horizontal` (default), `vertical`.
+    </ParamField>
+
+    ```json
+    {
+      "id": "section-divider",
+      "component": "Divider",
+      "axis": "horizontal"
+    }
+    ```
+
+  </Tab>
+  <Tab title="v0.8">
+
+    ```json
+    {
+      "id": "section-divider",
+      "component": {
+        "Divider": {
+          "axis": "horizontal"
+        }
+      }
+    }
+    ```
+
+  </Tab>
+</Tabs>
+</Accordion>
+
+<Accordion title="Card — elevated container">
+
+A container with surface elevation, a border, and built-in padding. Holds exactly one child component.
+
+<Tabs>
+  <Tab title="v0.9">
+
+    <ParamField body="child" type="string" required>
+      ID of the single child component to render inside the card.
+    </ParamField>
+
+    ```json
+    {
+      "id": "info-card",
+      "component": "Card",
+      "child": "card-content"
+    }
+    ```
+
+  </Tab>
+  <Tab title="v0.8">
+
+    ```json
+    {
+      "id": "info-card",
+      "component": {
+        "Card": {
+          "child": "card-content"
+        }
+      }
+    }
+    ```
+
+  </Tab>
+</Tabs>
+</Accordion>
+
+---
+
+## Input Components
+
+Input components are bidirectionally bound to the data model. When the user changes a value, the client automatically writes the new value to the bound path.
+
+<Accordion title="Button — action trigger">
+
+A tappable button that fires an action event when pressed.
+
+<Tabs>
+  <Tab title="v0.9">
+
+    <ParamField body="child" type="string" required>
+      ID of the child component used as the button label (typically a `Text`).
+    </ParamField>
+
+    <ParamField body="variant" type="string">
+      Visual style. Values: `primary`, `secondary`, `destructive`, `ghost`.
+    </ParamField>
+
+    <ParamField body="action" type="object">
+      Action descriptor: `{ "event": { "name": "event-name" } }`.
+    </ParamField>
+
+    ```json
+    {
+      "id": "submit-btn",
+      "component": "Button",
+      "child": "submit-label",
+      "variant": "primary",
+      "action": {
+        "event": { "name": "submit_form" }
+      }
+    }
+    ```
+
+  </Tab>
+  <Tab title="v0.8">
+
+    Uses `primary: true/false` instead of `variant`. Action format is `{ "name": "..." }`.
+
+    ```json
+    {
+      "id": "submit-btn",
+      "component": {
+        "Button": {
+          "child": "submit-label",
+          "primary": true,
+          "action": { "name": "submit_form" }
+        }
+      }
+    }
+    ```
+
+  </Tab>
+</Tabs>
+</Accordion>
+
+<Accordion title="TextField — text input">
+
+A single- or multi-line text input. Bidirectionally bound: user edits propagate to the data model automatically.
+
+<Tabs>
+  <Tab title="v0.9">
+
+    <ParamField body="label" type="string">
+      Input label shown above or inside the field.
+    </ParamField>
+
+    <ParamField body="value" type="string | DataBinding">
+      Current value. Bind to a data model path to make it reactive.
+    </ParamField>
+
+    <ParamField body="textFieldType" type="string">
+      Input type hint. Values: `shortText` (default), `longText`, `number`, `obscured`, `date`.
+    </ParamField>
+
+    <ParamField body="validationRegexp" type="string">
+      Optional regular expression for client-side validation.
+    </ParamField>
+
+    ```json
+    {
+      "id": "email-input",
+      "component": "TextField",
+      "label": "Email Address",
+      "value": { "path": "/user/email" },
+      "textFieldType": "shortText"
+    }
+    ```
+
+  </Tab>
+  <Tab title="v0.8">
+
+    Uses `text` (not `value`) for the bound property.
+
+    ```json
+    {
+      "id": "email-input",
+      "component": {
+        "TextField": {
+          "label": { "literalString": "Email Address" },
+          "text": { "path": "/user/email" },
+          "textFieldType": "shortText"
+        }
+      }
+    }
+    ```
+
+  </Tab>
+</Tabs>
+</Accordion>
+
+<Accordion title="Checkbox — boolean toggle">
+
+A labeled checkbox for boolean values. The bound path is automatically set to `true` or `false` as the user toggles.
+
+<Tabs>
+  <Tab title="v0.9">
+
+    <ParamField body="label" type="string">
+      Text label displayed next to the checkbox.
+    </ParamField>
+
+    <ParamField body="value" type="DataBinding">
+      JSON Pointer path to the boolean value in the data model.
+    </ParamField>
+
+    ```json
+    {
+      "id": "terms-check",
+      "component": "CheckBox",
+      "label": "I agree to the terms and conditions",
+      "value": { "path": "/form/agreedToTerms" }
+    }
+    ```
+
+  </Tab>
+  <Tab title="v0.8">
+
+    ```json
+    {
+      "id": "terms-check",
+      "component": {
+        "CheckBox": {
+          "label": { "literalString": "I agree to the terms and conditions" },
+          "value": { "path": "/form/agreedToTerms" }
+        }
+      }
+    }
+    ```
+
+  </Tab>
+</Tabs>
+</Accordion>
+
+<Accordion title="Slider — numeric range input">
+
+A draggable slider for selecting a number within a bounded range.
+
+<Tabs>
+  <Tab title="v0.9">
+
+    <ParamField body="value" type="DataBinding" required>
+      JSON Pointer path to the current numeric value.
+    </ParamField>
+
+    <ParamField body="minValue" type="number" required>
+      Minimum allowed value.
+    </ParamField>
+
+    <ParamField body="maxValue" type="number" required>
+      Maximum allowed value.
+    </ParamField>
+
+    ```json
+    {
+      "id": "volume-slider",
+      "component": "Slider",
+      "value": { "path": "/settings/volume" },
+      "minValue": 0,
+      "maxValue": 100
+    }
+    ```
+
+  </Tab>
+  <Tab title="v0.8">
+
+    ```json
+    {
+      "id": "volume-slider",
+      "component": {
+        "Slider": {
+          "value": { "path": "/settings/volume" },
+          "minValue": 0,
+          "maxValue": 100
+        }
+      }
+    }
+    ```
+
+  </Tab>
+</Tabs>
+</Accordion>
+
+<Accordion title="DateTimeInput — date and time picker">
+
+A platform-native date and/or time picker.
+
+<Tabs>
+  <Tab title="v0.9">
+
+    <ParamField body="value" type="DataBinding" required>
+      Path to the ISO 8601 date-time string in the data model.
+    </ParamField>
+
+    <ParamField body="enableDate" type="boolean">
+      Show the date picker. Defaults to `true`.
+    </ParamField>
+
+    <ParamField body="enableTime" type="boolean">
+      Show the time picker. Defaults to `false`.
+    </ParamField>
+
+    ```json
+    {
+      "id": "departure-picker",
+      "component": "DateTimeInput",
+      "value": { "path": "/booking/departureDate" },
+      "enableDate": true,
+      "enableTime": true
+    }
+    ```
+
+  </Tab>
+  <Tab title="v0.8">
+
+    ```json
+    {
+      "id": "departure-picker",
+      "component": {
+        "DateTimeInput": {
+          "value": { "path": "/booking/departureDate" },
+          "enableDate": true,
+          "enableTime": true
+        }
+      }
+    }
+    ```
+
+  </Tab>
+</Tabs>
+</Accordion>
+
+<Accordion title="ChoicePicker / MultipleChoice — select from options">
+
+Renders a list of labeled options. The user can select one or more; the selection is written to the bound data model path.
+
+<Tabs>
+  <Tab title="v0.9 — ChoicePicker">
+
+    <ParamField body="options" type="array" required>
+      Array of `{ "label": string, "value": string }` objects.
+    </ParamField>
+
+    <ParamField body="selections" type="DataBinding" required>
+      Path to the array of currently selected values in the data model.
+    </ParamField>
+
+    <ParamField body="maxAllowedSelections" type="number">
+      Maximum number of simultaneous selections. Use `1` for a single-select (dropdown equivalent).
+    </ParamField>
+
+    ```json
+    {
+      "id": "country-picker",
+      "component": "ChoicePicker",
+      "options": [
+        { "label": "United States", "value": "us" },
+        { "label": "Canada",        "value": "ca" },
+        { "label": "Mexico",        "value": "mx" }
+      ],
+      "selections": { "path": "/form/country" },
+      "maxAllowedSelections": 1
+    }
+    ```
+
+  </Tab>
+  <Tab title="v0.8 — MultipleChoice">
+
+    In v0.8, option labels use the `literalString` wrapper.
+
+    ```json
+    {
+      "id": "country-picker",
+      "component": {
+        "MultipleChoice": {
+          "options": [
+            { "label": { "literalString": "United States" }, "value": "us" },
+            { "label": { "literalString": "Canada" },        "value": "ca" }
+          ],
+          "selections": { "path": "/form/country" },
+          "maxAllowedSelections": 1
+        }
+      }
+    }
+    ```
+
+  </Tab>
+</Tabs>
+</Accordion>
+
+---
+
+## List Component
+
+<Accordion title="List — scrollable list with template support">
+
+A scrollable container that supports both a static list of children and a **template-based dynamic list** driven by an array in the data model.
+
+<Tabs>
+  <Tab title="v0.9">
+
+    <ParamField body="children" type="array | object">
+      Static: array of child IDs. Dynamic: `{ "path": "/array-path", "componentId": "template-id" }`. When dynamic, one instance of `template-id` is rendered per item in the array, with paths scoped to that item.
+    </ParamField>
+
+    <ParamField body="direction" type="string">
+      Scroll axis. Values: `vertical` (default), `horizontal`.
+    </ParamField>
+
+    <ParamField body="align" type="string">
+      Cross-axis alignment. Values: `start`, `center`, `end`, `stretch`.
+    </ParamField>
+
+    **Dynamic list example:**
+
+    ```json
+    {
+      "id": "message-list",
+      "component": "List",
+      "children": {
+        "path": "/messages",
+        "componentId": "message-item"
+      },
+      "direction": "vertical"
+    }
+    ```
+
+    The template component uses scoped paths. Inside `message-item`, `{ "path": "/text" }` resolves to `/messages/0/text`, `/messages/1/text`, etc.:
+
+    ```json
+    {
+      "id": "message-item",
+      "component": "Card",
+      "child": "message-body"
+    }
+    ```
+
+    ```json
+    {
+      "id": "message-body",
+      "component": "Text",
+      "text": { "path": "/text" }
+    }
+    ```
+
+  </Tab>
+  <Tab title="v0.8">
+
+    Dynamic lists use the `template` key inside `children`:
+
+    ```json
+    {
+      "id": "message-list",
+      "component": {
+        "List": {
+          "children": {
+            "template": {
+              "dataBinding": "/messages",
+              "componentId": "message-item"
+            }
+          },
+          "direction": "vertical"
+        }
+      }
+    }
+    ```
+
+  </Tab>
+</Tabs>
+</Accordion>
+
+---
+
+## Container Components
+
+<Accordion title="Modal — overlay dialog">
+
+An overlay dialog consisting of an entry-point trigger component (e.g., a button) and a content component rendered inside the modal layer.
+
+<Tabs>
+  <Tab title="v0.9">
+
+    <ParamField body="entryPointChild" type="string" required>
+      ID of the component that opens the modal (rendered in the normal flow).
+    </ParamField>
+
+    <ParamField body="contentChild" type="string" required>
+      ID of the component rendered inside the modal overlay.
+    </ParamField>
+
+    ```json
+    {
+      "id": "confirm-modal",
+      "component": "Modal",
+      "entryPointChild": "open-modal-btn",
+      "contentChild": "modal-body"
+    }
+    ```
+
+  </Tab>
+  <Tab title="v0.8">
+
+    ```json
+    {
+      "id": "confirm-modal",
+      "component": {
+        "Modal": {
+          "entryPointChild": "open-modal-btn",
+          "contentChild": "modal-body"
+        }
+      }
+    }
+    ```
+
+  </Tab>
+</Tabs>
+</Accordion>
+
+<Accordion title="Tabs — tabbed panel interface">
+
+Organizes content into labeled tabs. Each tab item has a title and points to a child component panel.
+
+<Tabs>
+  <Tab title="v0.9">
+
+    <ParamField body="tabItems" type="array" required>
+      Array of `{ "title": string, "child": string }` objects. `child` is the ID of the panel component to render for that tab.
+    </ParamField>
+
+    ```json
+    {
+      "id": "settings-tabs",
+      "component": "Tabs",
+      "tabItems": [
+        { "title": "General", "child": "general-panel" },
+        { "title": "Privacy", "child": "privacy-panel" }
+      ]
+    }
+    ```
+
+  </Tab>
+  <Tab title="v0.8">
+
+    ```json
+    {
+      "id": "settings-tabs",
+      "component": {
+        "Tabs": {
+          "tabItems": [
+            { "title": { "literalString": "General" }, "child": "general-panel" },
+            { "title": { "literalString": "Privacy" }, "child": "privacy-panel" }
+          ]
+        }
+      }
+    }
+    ```
+
+  </Tab>
+</Tabs>
+</Accordion>
+
+---
+
+<CardGroup cols={2}>
+  <Card title="Message Reference" icon="envelope" href="/reference/messages">
+    updateComponents, updateDataModel, and all other message types.
+  </Card>
+  <Card title="Data Binding" icon="link" href="/reference/data-binding">
+    How JSON Pointer paths connect component props to live data.
+  </Card>
+  <Card title="Catalogs" icon="book" href="/reference/catalogs">
+    Define your own component catalog or extend the basic catalog.
+  </Card>
+  <Card title="Transports" icon="arrow-right-arrow-left" href="/reference/transports">
+    Deliver A2UI messages over A2A, AG-UI, WebSockets, and more.
+  </Card>
+</CardGroup>

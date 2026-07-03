@@ -1,47 +1,367 @@
 ---
-title: "Quickstart"
-description: "Begin with a guide on the fastest path to a successful outcome"
+title: "A2UI Quickstart: Run the Restaurant Finder Demo"
+sidebarTitle: "Quickstart"
+description: "Get A2UI running locally in under five minutes with the restaurant finder demo — a Gemini ADK agent streaming A2UI JSON into a Lit web renderer."
 ---
 
-Describe how someone begins using your product. What is the first thing they need to do? Are there any prerequisites?
+A2UI's restaurant finder demo is the fastest way to experience agent-generated UI end-to-end. In a single `yarn demo:restaurant` command you'll have a Gemini-powered Python agent streaming A2UI JSON messages into a Lit web renderer in your browser — no prior knowledge of the protocol required. This guide walks through every step and explains what's happening at each stage.
 
-A quickstart should take someone from zero to using your product. They'll get a quick win and a sense of what they can accomplish.
+## What You'll Build
+
+By the end of this quickstart you'll have:
+
+- A running Lit web app with the A2UI renderer wired up and ready.
+- A live Gemini ADK agent that generates dynamic reservation UIs on demand.
+- An interactive restaurant finder that demonstrates form generation, time selection, and confirmation flows — all driven by A2UI JSON messages.
+- A clear mental model of how A2UI messages flow from agent to browser.
 
 ## Prerequisites
 
-Before you begin, you must have:
+<Warning>
+  This demo runs an A2A agent that calls the Gemini API using your API key. Always review agent code before running it in production environments. The agent source is at `samples/agent/adk/restaurant_finder/`.
+</Warning>
 
-- Requirement one (for example, Node.js 18+, a free account, an API key)
-- Requirement two (for example, a compatible device, a compatible browser, a compatible operating system)
+Make sure you have the following installed before proceeding:
 
-## Get started
+| Requirement | Version | Notes |
+|---|---|---|
+| **Node.js** | 18 or later | Must have [Corepack](https://nodejs.org/api/corepack.html) available |
+| **uv** | Latest | Python package manager used to run the agent backend |
+| **Gemini API key** | — | Free key from [Google AI Studio](https://aistudio.google.com/apikey) |
+
+## Step-by-Step Installation
 
 <Steps>
-  <Step title="Install">
-    Describe how to install your product or sign up.
-
+  <Step title="Clone the Repository">
     ```bash
-    npm install your-package
+    git clone https://github.com/a2ui-project/a2ui.git
+    cd a2ui
     ```
   </Step>
-  <Step title="Configure">
-    Describe any setup or configuration needed before first use.
+
+  <Step title="Set Your Gemini API Key">
+    Export your key as an environment variable. The Python agent reads it at startup:
 
     ```bash
-    your-cli init
+    export GEMINI_API_KEY="your_gemini_api_key_here"
+    ```
+
+    To verify the key is set correctly:
+
+    ```bash
+    echo $GEMINI_API_KEY
     ```
   </Step>
-  <Step title="Run it">
-    Show the first thing a user does to see it working.
+
+  <Step title="Navigate to the Lit Client Directory">
+    The demo launcher lives in the Lit client samples directory:
 
     ```bash
-    your-cli start
+    cd samples/client/lit
     ```
+  </Step>
+
+  <Step title="Enable Corepack and Install Dependencies">
+    A2UI uses [Corepack](https://nodejs.org/api/corepack.html) to pin Yarn to the correct version per workspace. Enable it before running `yarn install`:
+
+    ```bash
+    corepack enable
+    yarn install
+    ```
+
+    <Tip>
+      **macOS Homebrew users:** If you previously installed `yarn` or `pnpm` via Homebrew, unlink them first so Corepack can manage versions per-project:
+
+      ```bash
+      brew unlink yarn pnpm
+      brew install corepack
+      corepack enable
+      ```
+    </Tip>
+
+    <Note>
+      Corepack and Yarn workspaces are only required within the A2UI repository itself. For your own projects outside this repository, use any package manager you prefer (npm, pnpm, etc.).
+    </Note>
+  </Step>
+
+  <Step title="Launch the Demo">
+    A single command builds the renderer, starts the Python agent, and opens your browser:
+
+    ```bash
+    yarn demo:restaurant
+    ```
+
+    Internally, this command:
+
+    1. Builds the A2UI Lit renderer
+    2. Starts the A2A restaurant finder agent (Python + uv)
+    3. Launches the Vite development server
+    4. Opens your browser at `http://localhost:5173`
+
+    <Note>
+      If you see `ERR_CONNECTION_REFUSED` when the browser first opens, **don't panic** — this is a known race condition ([#587](https://github.com/a2ui-project/a2ui/issues/587)). The web app starts faster than the Python backend. Wait a few seconds and refresh the page.
+    </Note>
+  </Step>
+
+  <Step title="Try the Demo">
+    In the web app, type any of these prompts to see A2UI in action:
+
+    - **"Book a table for 2"** — the agent generates a reservation form with date picker, guest count, and a confirm button.
+    - **"Find Italian restaurants near me"** — watch dynamic search results populate as cards.
+    - **"What are your hours?"** — observe how the same agent produces a completely different UI layout for a different intent.
   </Step>
 </Steps>
 
-<Tip>
-  Give people a way to get help. This could be a link to a support page, a chat with a customer support agent, or a forum for your product.
+## What's Happening Under the Hood
 
-  Example: Need help? Reach out to us at [support@yourcompany.com](mailto:support@yourcompany.com).
+When you send a message in the web app, the following pipeline runs:
+
+```
+┌─────────────┐         ┌──────────────┐         ┌────────────────┐
+│   You Type  │────────>│ A2A Agent    │────────>│  Gemini API    │
+│  a Message  │         │  (Python)    │         │  (LLM)         │
+└─────────────┘         └──────────────┘         └────────────────┘
+                               │                         │
+                               │   Generates A2UI JSON   │
+                               │<────────────────────────┘
+                               │
+                               │  Streams JSONL messages
+                               v
+                        ┌──────────────┐
+                        │   Web App    │
+                        │ (A2UI Lit    │
+                        │  Renderer)   │
+                        └──────────────┘
+                               │
+                               │  Renders native components
+                               v
+                        ┌──────────────┐
+                        │   Your UI    │
+                        └──────────────┘
+```
+
+1. **You send a message** in the browser.
+2. **The A2A agent** (Python) receives it and forwards the conversation to Gemini.
+3. **Gemini generates** A2UI JSON messages describing the UI to render.
+4. **The A2A agent streams** those messages back to the browser as JSONL.
+5. **The A2UI Lit renderer** parses each message and instantiates native web components.
+6. **You see the UI** appear progressively as messages arrive.
+
+## Anatomy of the A2UI Messages
+
+Here's a representative sample of what the agent sends. Two version tabs are shown — the demo uses v0.9:
+
+<Tabs>
+  <Tab title="v0.9 (Stable)">
+    **1. Create the surface and declare the catalog:**
+
+    ```json
+    {
+      "version": "v0.9.1",
+      "createSurface": {
+        "surfaceId": "main",
+        "catalogId": "https://a2ui.org/specification/v0_9_1/catalogs/basic/catalog.json"
+      }
+    }
+    ```
+
+    **2. Define the UI components (streamed as a flat list):**
+
+    ```json
+    {
+      "version": "v0.9.1",
+      "updateComponents": {
+        "surfaceId": "main",
+        "components": [
+          { "id": "header",      "component": "Text",          "text": "Book Your Table", "variant": "h1" },
+          { "id": "date-picker", "component": "DateTimeInput", "label": "Select Date",
+            "value": { "path": "/reservation/date" }, "enableDate": true },
+          { "id": "submit-text", "component": "Text",          "text": "Confirm Reservation" },
+          { "id": "submit-btn",  "component": "Button",        "child": "submit-text",
+            "variant": "primary", "action": { "event": { "name": "confirm_booking" } } }
+        ]
+      }
+    }
+    ```
+
+    **3. Populate the data model:**
+
+    ```json
+    {
+      "version": "v0.9.1",
+      "updateDataModel": {
+        "surfaceId": "main",
+        "path": "/reservation",
+        "value": { "date": "2025-12-15", "time": "19:00", "guests": 2 }
+      }
+    }
+    ```
+
+    Note: `createSurface` replaces the old `beginRendering`. Components use a flat `"component": "Text"` format instead of nested objects. All messages include a `version` field.
+  </Tab>
+  <Tab title="v0.8 (Legacy)">
+    **1. Define UI structure:**
+
+    ```json
+    {
+      "surfaceUpdate": {
+        "surfaceId": "main",
+        "components": [
+          { "id": "header",      "component": { "Text": { "text": { "literalString": "Book Your Table" }, "usageHint": "h1" } } },
+          { "id": "date-picker", "component": { "DateTimeInput": { "label": { "literalString": "Select Date" },
+              "value": { "path": "/reservation/date" }, "enableDate": true } } },
+          { "id": "submit-text", "component": { "Text": { "text": { "literalString": "Confirm Reservation" } } } },
+          { "id": "submit-btn",  "component": { "Button": { "child": "submit-text",
+              "action": { "name": "confirm_booking" } } } }
+        ]
+      }
+    }
+    ```
+
+    **2. Populate data:**
+
+    ```json
+    {
+      "dataModelUpdate": {
+        "surfaceId": "main",
+        "contents": [
+          { "key": "reservation", "valueMap": [
+            { "key": "date",   "valueString": "2025-12-15" },
+            { "key": "time",   "valueString": "19:00" },
+            { "key": "guests", "valueInt": 2 }
+          ]}
+        ]
+      }
+    }
+    ```
+
+    **3. Signal render:**
+
+    ```json
+    { "beginRendering": { "surfaceId": "main", "root": "header" } }
+    ```
+  </Tab>
+</Tabs>
+
+<Tip>
+  Notice how readable and regular the JSON is. LLMs generate this format naturally as structured output, and it's safe to transmit and render because no code ever executes on the client.
 </Tip>
+
+## Manual Two-Terminal Approach
+
+If you prefer to run the agent and client in separate terminals (useful for debugging or inspecting agent output directly):
+
+**Terminal 1 — Start the agent:**
+
+```bash
+cd samples/agent/adk/restaurant_finder
+uv run .
+```
+
+**Terminal 2 — Start the client:**
+
+```bash
+cd samples/client/lit/shell
+yarn dev
+```
+
+Open `http://localhost:5173` in your browser once both processes are running.
+
+## Exploring Other Demos
+
+### Component Gallery (No Agent Required)
+
+Browse all available A2UI components with live examples and code samples — no API key needed:
+
+```bash
+yarn start gallery
+```
+
+### Other Framework Renderers
+
+The repository ships client samples for additional frameworks alongside Lit:
+
+- **Angular**: `samples/client/angular`
+- **React**: `samples/client/react`
+
+## Other Ways to Get Started
+
+If the restaurant finder demo isn't the right starting point for your use case, A2UI offers three more entry points:
+
+<CardGroup cols={2}>
+  <Card title="AG-UI / CopilotKit" icon="plug" href="/guides/a2ui-with-any-agent-framework">
+    Use CopilotKit to connect any agent framework (ADK, LangGraph, CrewAI, Mastra) to A2UI over AG-UI. Start with `npx copilotkit@latest init`.
+  </Card>
+  <Card title="A2UI Composer" icon="pen-nib" href="https://a2ui-composer.ag-ui.com/">
+    Generate A2UI JSON from a visual editor and paste it directly into any agent prompt. No install required — live in your browser.
+  </Card>
+  <Card title="A2UI Theater" icon="film" href="https://a2ui-composer.ag-ui.com/theater">
+    Step through pre-built A2UI streaming scenarios across Lit, React, and Angular renderers. No install required.
+  </Card>
+  <Card title="Widget Builder" icon="hammer" href="https://go.copilotkit.ai/A2UI-widget-builder">
+    Interactively build individual A2UI widgets and export the JSON for use in your agent prompts.
+  </Card>
+</CardGroup>
+
+## Troubleshooting
+
+<Accordion title="Port 5173 is already in use">
+  The Vite dev server automatically tries the next available port. Check the terminal output for the actual URL after startup.
+</Accordion>
+
+<Accordion title="API key errors">
+  1. Verify the key is exported: `echo $GEMINI_API_KEY`
+  2. Confirm it's a valid Gemini key from [Google AI Studio](https://aistudio.google.com/apikey)
+  3. Re-export if necessary: `export GEMINI_API_KEY="your_key"`
+</Accordion>
+
+<Accordion title="uv: command not found">
+  Install uv and verify the installation:
+
+  ```bash
+  curl -LsSf https://astral.sh/uv/install.sh | sh
+  uv --version
+  ```
+
+  Then confirm Python 3.10+ is available:
+
+  ```bash
+  python3 --version
+  ```
+</Accordion>
+
+<Accordion title="ERR_CONNECTION_REFUSED on startup">
+  This is a known race condition ([#587](https://github.com/a2ui-project/a2ui/issues/587)). The browser opens before the Python agent is fully ready. Wait a few seconds and refresh the page.
+</Accordion>
+
+<Accordion title="Still having issues?">
+  - Check [GitHub Issues](https://github.com/a2ui-project/a2ui/issues) for known problems.
+  - Review `samples/client/lit/README.md` for renderer-specific notes.
+  - Join the community discussions on GitHub.
+</Accordion>
+
+## Where to Look in the Code
+
+| What | Path |
+|---|---|
+| Python A2A agent | `samples/agent/adk/restaurant_finder/` |
+| Lit web client | `samples/client/lit/` |
+| A2UI Lit renderer | `renderers/lit/` |
+| Framework-agnostic core | `renderers/web_core/` |
+
+## What's Next?
+
+<CardGroup cols={2}>
+  <Card title="Core Concepts" icon="book-open" href="/concepts">
+    Understand surfaces, components, data binding, and catalogs — the four building blocks of every A2UI application.
+  </Card>
+  <Card title="Set Up Your Own Client" icon="code" href="/guides/client-setup">
+    Integrate the A2UI renderer into your own web or mobile application.
+  </Card>
+  <Card title="Build an Agent" icon="robot" href="/guides/agent-development">
+    Create an agent that generates A2UI responses using your LLM and framework of choice.
+  </Card>
+  <Card title="Message Reference" icon="file-code" href="/reference/messages">
+    Dive into the full technical specification for all A2UI message types.
+  </Card>
+</CardGroup>

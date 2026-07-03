@@ -1,0 +1,135 @@
+---
+title: "A2UI Renderer Ecosystem: Official and Community Libs"
+sidebarTitle: "Renderers"
+description: "Explore every A2UI renderer — official libraries for React, Lit, Angular, and Flutter, plus the full community ecosystem across mobile, desktop, and web."
+---
+
+Renderers are the bridge between A2UI JSON messages and native UI components on each platform. Think of the A2UI protocol as HTML, the agent as the web server, and the renderer as the browser engine — just as multiple browser engines exist for HTML, multiple renderers exist for A2UI. The client library must receive and buffer messages, parse and validate JSON, render platform-native widgets, and route user actions back to the agent.
+
+## How Renderers Work
+
+Every A2UI renderer, whether official or community-built, follows the same four-step lifecycle:
+
+1. **Receive** — Accept A2UI messages from the transport layer (A2A, AG-UI, WebSocket, REST, or MCP).
+2. **Parse** — Validate the incoming JSON against the A2UI schema and build an adjacency-list component tree.
+3. **Render** — Map A2UI component descriptors to platform-native widgets using your framework's primitives.
+4. **Act** — Capture user interactions and route action events back to the agent.
+
+<Info>
+  The renderer handles lifecycle and data binding. The agent stays completely unaware of which renderer is used — the same agent JSON works across React, Flutter, Android, and any other compliant renderer.
+</Info>
+
+## Official Maintained Renderers
+
+These renderers are maintained directly by the A2UI project team and partner organizations. All support both v0.8 and v0.9.1, with v1.0 planned.
+
+### Web Renderers
+
+| Renderer | Platform | v0.8 | v0.9.1 | v1.0 | Links |
+|---|---|---|---|---|---|
+| **React** | Web | ✅ Stable | ✅ Stable | 🚧 Planned | [Code](https://github.com/a2ui-project/a2ui/tree/main/renderers/react) |
+| **Lit (Web Components)** | Web | ✅ Stable | ✅ Stable | 🚧 Planned | [Code](https://github.com/a2ui-project/a2ui/tree/main/renderers/lit) |
+| **Angular** | Web | ✅ Stable | ✅ Stable | 🚧 Planned | [Code](https://github.com/a2ui-project/a2ui/tree/main/renderers/angular) |
+
+### Mobile & Cross-Platform Renderers
+
+| Renderer | Platform | v0.8 | v0.9.1 | v1.0 | Links |
+|---|---|---|---|---|---|
+| **Flutter (GenUI SDK)** | Mobile / Desktop / Web | ✅ Stable | ✅ Stable | 🚧 Planned | [Docs](https://docs.flutter.dev/ai/genui) · [Code](https://github.com/flutter/genui) |
+| **SwiftUI** | iOS / macOS | — | — | 🚧 Planned | Planned Q3 2026 |
+| **Jetpack Compose** | Android | — | — | 🚧 Planned | Planned Q3 2026 |
+
+<Note>
+  The **Lit (Web Components)** renderer is framework-agnostic — it works in any HTML page or web app regardless of your frontend framework, making it the fastest way to add A2UI rendering without any framework dependency.
+</Note>
+
+## Community Ecosystem Renderers
+
+The following renderers are maintained by their respective authors, not the A2UI team. Check each project for compatibility, maintenance status, and version support before using in production.
+
+| Renderer | Platform | v0.8 | v0.9 | Links |
+|---|---|---|---|---|
+| **easyops-cn/a2ui-sdk** (`@a2ui-sdk/react`) | React (Web) | ✅ | ❌ | [GitHub](https://github.com/easyops-cn/a2ui-sdk) · [npm](https://www.npmjs.com/package/@a2ui-sdk/react) · [Docs](https://a2ui-sdk.js.org/) |
+| **lmee/A2UI-Android** | Android (Jetpack Compose) | ✅ | ❌ | [GitHub](https://github.com/lmee/A2UI-Android) |
+| **sivamrudram-eng/a2ui-react-native** | React Native (iOS / Android) | ✅ | ❌ | [GitHub](https://github.com/sivamrudram-eng/a2ui-react-native) |
+| **zhama/a2ui** | React (Web) | ✅ | ❌ | [npm](https://www.npmjs.com/package/@zhama/a2ui) |
+| **jem-computer/A2UI-react** | React (Web) | ✅ | ❌ | [GitHub](https://github.com/jem-computer/A2UI-react) |
+| **BBC6BAE9/a2ui-swift** | Apple (iOS, iPadOS, macOS, tvOS, watchOS, visionOS) | ✅ | ✅ | [GitHub](https://github.com/BBC6BAE9/a2ui-swift) |
+| **TanXudong-Vivo/A2UI-Android-Renderer** | Android (Jetpack Compose) | ❌ | ✅ | [GitHub](https://github.com/TanXudong-Vivo/A2UI-Android-Renderer) |
+| **shawnwang15/a2ui-vue** | Vue (Web) | ✅ | ✅ | [GitHub](https://github.com/shawnwang15/a2ui-vue) · [npm](https://www.npmjs.com/package/a2ui-vue) · [Docs](https://shawnwang15.github.io/a2ui-vue/en/) |
+| **AGenUI/AGenUI** | iOS, Android, HarmonyOS | ❌ | ✅ | [GitHub](https://github.com/AGenUI/AGenUI) · [Website](https://genui.amap.com/) |
+| **lynx-family/lynx-stack** (`@lynx-js/genui/a2ui`) | Lynx (Mobile, Web, Desktop) | ❌ | ✅ | [GitHub](https://github.com/lynx-family/lynx-stack/tree/main/packages/genui/a2ui) · [npm](https://www.npmjs.com/package/@lynx-js/genui) · [Docs](https://lynxjs.org/next/react/genui/a2ui.html) |
+
+### Community Renderer Highlights
+
+**easyops-cn/a2ui-sdk** is the most fully featured community React renderer, with 11 published versions, Radix UI primitives, Tailwind CSS styling, and a dedicated documentation site. [Announced on A2UI discussions.](https://github.com/a2ui-project/a2ui/discussions/489)
+
+**BBC6BAE9/a2ui-swift** (formerly `a2ui-swiftui`) is a native SwiftUI renderer covering all 18 basic A2UI components with dual v0.8 + v0.9 protocol support, JSONL streaming, and reactivity via the Observation framework. It targets the full Apple platform family: iOS, macOS, visionOS, watchOS, and tvOS.
+
+**TanXudong-Vivo/A2UI-Android-Renderer** is the first Android implementation to support the A2UI v0.9 protocol. Built on Jetpack Compose and Material 3, it covers 13 fully implemented components (including image loading via Coil), streaming rendering from LLM token streams, data binding with `path` expressions and `formatDate`, and a pluggable Custom Catalog for registering additional component types.
+
+**AGenUI/AGenUI** is a cross-platform native renderer for v0.9 with iOS, Android, and HarmonyOS support via a shared C++ core. It extends the Basic Catalog with Table, Carousel, Web, RichText, and a Styles property while remaining aligned with A2UI's extensible Catalog model.
+
+**lynx-family/lynx-stack** (`@lynx-js/genui/a2ui`) provides the ReactLynx renderer for v0.9. It consumes validated server-to-client A2UI messages through a `MessageStore`, renders approved ReactLynx components from caller-supplied catalogs, and forwards generated UI actions through `onAction`.
+
+### Notable Mentions
+
+These projects are early-stage or experimental:
+
+- **[@xpert-ai/a2ui-react](https://www.npmjs.com/package/@xpert-ai/a2ui-react)** — React renderer with ShadCN UI components (v0.0.1).
+- **[josh-english-2k18/a2ui-3d-renderer](https://github.com/josh-english-2k18/a2ui-3d-renderer)** — Experimental Three.js / WebGL 3D renderer for A2UI.
+- **[AINative-Studio/ai-kit-a2ui](https://github.com/AINative-Studio/ai-kit-a2ui)** — React + ShadCN renderer for the AIKit framework.
+
+## Related Projects
+
+These projects are not A2UI renderers in the strict sense but have meaningful A2UI support or interoperability:
+
+| Project | Platform | Description | Links |
+|---|---|---|---|
+| **vercel-labs/json-render** (`@json-render/*`) | React, Vue, Svelte, Solid, React Native | Generative UI framework by Vercel using its own JSON schema with Zod-based component catalogs, 36 pre-built shadcn/ui components, and cross-platform rendering. | [GitHub](https://github.com/vercel-labs/json-render) · [npm](https://www.npmjs.com/package/@json-render/core) · [Docs](https://json-render.dev/) |
+
+## Ecosystem Utilities
+
+- **[@a2ui/markdown-it](https://www.npmjs.com/package/@a2ui/markdown-it)** — Enables Markdown rendering inside the `Text` widget across all renderers.
+
+## Submit Your Renderer
+
+If you have built an A2UI renderer, you can submit it to be listed in the community table above. Here's how the process works:
+
+1. **Fork** the [a2ui-project/a2ui](https://github.com/a2ui-project/a2ui) repository.
+2. **Edit** `docs/ecosystem/renderers.md` — add a row to the Community Renderers table with your renderer's name, platform, npm package (if any), version support, and a link to the source.
+3. **Open a PR** against `a2ui-project/a2ui` with a short description of your renderer.
+4. **Post in [GitHub Discussions](https://github.com/a2ui-project/a2ui/discussions)** to let the community know what you built. A short demo video goes a long way.
+
+<Note>
+  Need inspiration? Browse the **[community samples](https://github.com/a2ui-project/a2ui/tree/main/samples)** in the repository — these cover Angular, Lit, and ADK-based agents and are a great starting point for building your own renderer.
+</Note>
+
+### What Makes a Good Community Renderer
+
+A listing is more likely to be accepted and used if it meets the following criteria:
+
+- Has **published source code** (open-source preferred; MIT or Apache 2.0).
+- Clearly states **which A2UI spec version(s)** it supports (v0.8, v0.9, v0.9.1, or v1.0).
+- Covers the **basic components** from the A2UI component catalog: text, buttons, inputs, and basic layout.
+- Includes a **README** with install instructions and a minimal usage example.
+- Is **actively maintained** — mark it as archived if you are no longer supporting it.
+
+Community renderers do not need to be production-ready to be listed. Experimental and early-stage projects are welcome in the Notable Mentions section.
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Build a Renderer" icon="hammer" href="/guides/renderer-development">
+    Step-by-step guide to implementing a compliant A2UI renderer for your platform.
+  </Card>
+  <Card title="Client Setup" icon="plug" href="/guides/client-setup">
+    Integrate an existing official renderer into your React, Angular, Lit, or Flutter app.
+  </Card>
+  <Card title="Component Reference" icon="grid" href="/reference/components">
+    Full catalog of A2UI components your renderer must support.
+  </Card>
+  <Card title="Roadmap" icon="map" href="/roadmap">
+    See planned renderers, upcoming protocol versions, and how to influence priorities.
+  </Card>
+</CardGroup>

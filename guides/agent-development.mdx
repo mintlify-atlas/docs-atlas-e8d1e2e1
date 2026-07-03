@@ -1,0 +1,321 @@
+---
+title: "Agent Development with A2UI: Full Workflow Guide"
+sidebarTitle: "Agent Development"
+description: "Build AI agents that generate rich A2UI interfaces — from understanding user intent to streaming validated JSON and handling user actions."
+---
+
+Building an A2UI agent means teaching an LLM to output structured UI instructions alongside its conversational responses. Rather than returning plain text, the agent produces A2UI JSON — a validated payload that a client renderer turns into interactive components like cards, forms, and buttons. This guide walks through every stage of that pipeline, from scaffolding a basic ADK agent to generating and streaming fully validated A2UI messages.
+
+## The Four-Stage Workflow
+
+Every A2UI agent follows the same core loop regardless of framework or model:
+
+<Steps>
+  <Step title="Understand user intent">
+    Parse the user's request to decide what kind of UI to show — a list, a form, a confirmation screen, or something else. The agent's instruction prompt encodes these decision rules so the LLM can make the right choice at inference time.
+  </Step>
+  <Step title="Generate A2UI JSON">
+    Use LLM structured output or prompt-engineering with the A2UI JSON Schema to produce a valid array of A2UI messages. The SDK's `A2uiSchemaManager` automates schema and example injection into the system prompt.
+  </Step>
+  <Step title="Validate and stream">
+    Before sending anything to the client, validate the LLM's output against the A2UI JSON Schema. Once clean, wrap it in the `application/a2ui+json` MIME type and stream it progressively so the UI renders as data arrives.
+  </Step>
+  <Step title="Handle actions">
+    When a user clicks a button or submits a form, the client routes that interaction back to the agent as a new turn. The agent reads the action context and generates the appropriate follow-up UI.
+  </Step>
+</Steps>
+
+---
+
+## Setting Up Your Agent
+
+This guide uses **Google ADK** to build a restaurant-finder agent — a concrete example that starts as plain text and evolves into a full A2UI experience.
+
+<Note>
+  See the complete ADK quickstart at [google.github.io/adk-docs](https://google.github.io/adk-docs/get-started/python/) for environment setup and authentication details.
+</Note>
+
+### Install ADK and scaffold the project
+
+<Tabs>
+  <Tab title="pip">
+    ```bash
+    pip install google-adk
+    adk create my_agent
+    ```
+  </Tab>
+  <Tab title="uv (recommended)">
+    If you are working inside the A2UI sample directories, or any project that already depends on `google-adk`, you can run ADK through `uv` without a global install:
+
+    ```bash
+    uv run adk create my_agent
+    ```
+  </Tab>
+</Tabs>
+
+Set your API key before running anything:
+
+```bash
+echo 'GOOGLE_API_KEY="YOUR_API_KEY"' > .env
+```
+
+---
+
+## A Minimal Agent — Plain Text Output
+
+Edit `my_agent/agent.py` with a simple restaurant-recommendation agent. This version returns plain text; we will upgrade it to A2UI in the next section.
+
+```python
+import json
+from google.adk.agents.llm_agent import Agent
+from google.adk.tools.tool_context import ToolContext
+
+
+def get_restaurants(tool_context: ToolContext) -> str:
+    """Call this tool to get a list of restaurants."""
+    return json.dumps([
+        {
+            "name": "Xi'an Famous Foods",
+            "detail": "Spicy and savory hand-pulled noodles.",
+            "imageUrl": "http://localhost:10002/static/shrimpchowmein.jpeg",
+            "rating": "★★★★☆",
+            "infoLink": "[More Info](https://www.xianfoods.com/)",
+            "address": "81 St Marks Pl, New York, NY 10003"
+        },
+        {
+            "name": "Han Dynasty",
+            "detail": "Authentic Szechuan cuisine.",
+            "imageUrl": "http://localhost:10002/static/mapotofu.jpeg",
+            "rating": "★★★★☆",
+            "infoLink": "[More Info](https://www.handynasty.net/)",
+            "address": "90 3rd Ave, New York, NY 10003"
+        },
+        {
+            "name": "RedFarm",
+            "detail": "Modern Chinese with a farm-to-table approach.",
+            "imageUrl": "http://localhost:10002/static/beefbroccoli.jpeg",
+            "rating": "★★★★☆",
+            "infoLink": "[More Info](https://www.redfarmnyc.com/)",
+            "address": "529 Hudson St, New York, NY 10014"
+        },
+    ])
+
+
+AGENT_INSTRUCTION = """
+You are a helpful restaurant finding assistant. Your goal is to help users find
+and book restaurants using a rich UI.
+
+To achieve this, you MUST follow this logic:
+
+1. For finding restaurants:
+   a. You MUST call the `get_restaurants` tool. Extract the cuisine, location,
+      and a specific number (`count`) of restaurants from the user's query.
+   b. After receiving the data, follow the instructions precisely to generate
+      the final A2UI JSON, using the appropriate UI template.
+"""
+
+root_agent = Agent(
+    model='gemini-2.5-flash',
+    name="restaurant_agent",
+    description="An agent that finds restaurants and helps book tables.",
+    instruction=AGENT_INSTRUCTION,
+    tools=[get_restaurants],
+)
+```
+
+Test it with the ADK development UI:
+
+```bash
+adk web
+```
+
+Select `my_agent` from the list and ask about restaurants in New York. You will see a plain-text response at this stage — the next section upgrades this to rich A2UI output.
+
+---
+
+## Generating A2UI Messages
+
+Getting the LLM to produce valid A2UI JSON requires two things: a schema injected into the system prompt, and concrete few-shot examples that show the model what the output should look like. The `A2uiSchemaManager` handles both automatically.
+
+### Install the Agent SDK
+
+```bash
+pip install a2ui-agent-sdk
+```
+
+### Update your agent to use the SDK
+
+```python
+import json
+from google.adk.agents.llm_agent import Agent
+from google.adk.tools.tool_context import ToolContext
+
+from a2ui.schema.constants import VERSION_0_8, VERSION_0_9
+from a2ui.schema.manager import A2uiSchemaManager
+from a2ui.basic_catalog.provider import BasicCatalog
+
+
+def get_restaurants(tool_context: ToolContext) -> str:
+    """Call this tool to get a list of restaurants."""
+    return json.dumps([
+        {
+            "name": "Xi'an Famous Foods",
+            "detail": "Spicy and savory hand-pulled noodles.",
+            "imageUrl": "http://localhost:10002/static/shrimpchowmein.jpeg",
+            "rating": "★★★★☆",
+            "infoLink": "[More Info](https://www.xianfoods.com/)",
+            "address": "81 St Marks Pl, New York, NY 10003"
+        },
+        # ... more restaurants
+    ])
+
+
+# Describe the agent's role in plain language
+ROLE_DESCRIPTION = (
+    "You are a helpful restaurant finding assistant. Your final output "
+    "MUST be an A2UI JSON response."
+)
+
+# Rules that tell the LLM which template to use in each situation
+UI_DESCRIPTION = """
+- If the query is for a list of restaurants, use the restaurant data you have
+  already received from the `get_restaurants` tool to populate the
+  `dataModelUpdate.contents` (v0.8) or `updateDataModel.value` (v0.9+) object.
+- If the number of restaurants is 5 or fewer, use the SINGLE_COLUMN_LIST_EXAMPLE template.
+- If the number of restaurants is more than 5, use the TWO_COLUMN_LIST_EXAMPLE template.
+- If the query is to book a restaurant, use the BOOKING_FORM_EXAMPLE template.
+- If the query is a booking submission, use the CONFIRMATION_EXAMPLE template.
+"""
+
+# Initialize the schema manager with the Basic Catalog
+schema_manager = A2uiSchemaManager(
+    version=VERSION_0_8,   # Use VERSION_0_9 for the newer protocol
+    catalogs=[
+        BasicCatalog.get_config(
+            version=VERSION_0_8, examples_path="examples/0.8"
+        )
+    ],
+)
+
+# Generate the full system prompt — schema + examples + role + UI rules
+A2UI_AND_AGENT_INSTRUCTION = schema_manager.generate_system_prompt(
+    role_description=ROLE_DESCRIPTION,
+    ui_description=UI_DESCRIPTION,
+    include_schema=True,
+    include_examples=True,
+    validate_examples=True,
+)
+
+root_agent = Agent(
+    model='gemini-2.5-flash',
+    name="restaurant_agent",
+    description="An agent that finds restaurants and helps book tables.",
+    instruction=A2UI_AND_AGENT_INSTRUCTION,
+    tools=[get_restaurants],
+)
+```
+
+<Tip>
+  Pass `validate_examples=True` during development to catch any malformed example files early. Switch it off in production to avoid the overhead.
+</Tip>
+
+### How the prompt is assembled
+
+`generate_system_prompt` stitches together several sections in order:
+
+| Section | Source | Purpose |
+|---|---|---|
+| Role description | Your `role_description` string | Sets the agent's persona |
+| Workflow rules | Default SDK rules + your `workflow_description` | Tells the LLM when to call tools |
+| UI description | Your `ui_description` string | Maps conditions to templates |
+| JSON Schema | Bundled catalog schema | Defines every valid component and message |
+| Few-shot examples | Files in `examples_path` | Shows correct output format |
+
+---
+
+## Understanding the Output Format
+
+Once the SDK is wired in, your agent produces both conversational text and a JSON block delimited by standard tags:
+
+```
+Here are some great options near you!
+<a2ui-json>
+[{
+  "surfaceUpdate": { ... }
+}]
+</a2ui-json>
+```
+
+The `<a2ui-json>` / `</a2ui-json>` tags let the streaming parser locate the payload deterministically, even if the LLM wraps it in markdown fences. The content is a JSON array of A2UI message objects — operations such as `render`, `update`, and `dataModelUpdate`.
+
+### Validating before sending
+
+Because LLMs occasionally introduce subtle schema violations, always validate the extracted JSON before forwarding it to the client:
+
+```python
+import json
+import jsonschema
+
+# 1. Extract the JSON string (the SDK parser handles this automatically in
+#    production; the manual version below is for illustration only).
+parsed_json_data = json.loads(json_string_cleaned)
+
+# 2. Validate against the A2UI schema loaded by the schema manager
+selected_catalog = schema_manager.get_selected_catalog()
+selected_catalog.validator.validate(parsed_json_data)
+```
+
+<Warning>
+  Parsing raw LLM output with `json.loads` directly is fragile — the model may include markdown fences, trailing commas, or other formatting. In production, rely on the SDK's `A2uiStreamParser` which handles these edge cases for you. See the [Agent SDK guide](/guides/agent-sdk) for details.
+</Warning>
+
+---
+
+## Handling User Actions
+
+Interactive components such as `Button` carry an `action` payload. When a user clicks a button, the client sends that action back to the agent as a new conversational turn, typically formatted as:
+
+```
+User submitted a booking form with the following values: ...
+```
+
+The agent instruction should include rules that match this pattern and instruct the model to render the appropriate follow-up UI — for example, a confirmation screen after a booking submission.
+
+<Accordion title="Example: booking action round-trip">
+  **Agent instruction rule:**
+  ```
+  - If the query is a booking submission (e.g., "User submitted a booking..."),
+    you MUST use the CONFIRMATION_EXAMPLE template.
+  ```
+
+  **Client sends:**
+  ```
+  User submitted a booking for Han Dynasty on March 15th at 7 PM for 2 people.
+  ```
+
+  **Agent produces:**
+  ```json
+  [{
+    "surfaceUpdate": {
+      "surface": "default",
+      "render": {
+        "rootComponent": "confirmation-root"
+      },
+      "updateComponents": { ... }
+    }
+  }]
+  ```
+</Accordion>
+
+---
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Agent SDK Architecture" icon="layer-group" href="/guides/agent-sdk">
+    Deep dive into the SDK's capability management, streaming parser, and validation pipeline.
+  </Card>
+  <Card title="MCP Integration" icon="plug" href="/guides/mcp-integration">
+    Serve A2UI interfaces from an MCP server using tools and embedded resources.
+  </Card>
+</CardGroup>

@@ -1,0 +1,239 @@
+---
+title: "Theming and Styling Agent-Generated A2UI Components"
+sidebarTitle: "Theming"
+description: "Override CSS variables, control dark mode, load custom fonts, and use semantic hints so agent-generated UI fits seamlessly into your design system."
+---
+
+A2UI follows a **renderer-controlled styling** philosophy: the agent describes *what* to show using semantic hints and structured data, while the renderer decides *how* it looks. This separation means your design system remains in charge of colors, typography, and spacing — the agent cannot inject arbitrary visual styles. At the same time, the protocol is flexible enough to let agents pass theme data through to the catalog when your use-case requires it.
+
+## Styling Layers
+
+A2UI styling is applied in three layers that stack on top of each other:
+
+```
+┌─────────────────────────────────────────────────────────┐
+│  Agent-provided styling                                 │
+│  Semantic hints and theme data                          │
+│  (e.g., usageHint: "h1")                                │
+└──────────────────────┬──────────────────────────────────┘
+                       │
+┌──────────────────────▼──────────────────────────────────┐
+│  Catalog Theming                                        │
+│  Catalog interprets theme data or uses defaults         │
+└──────────────────────┬──────────────────────────────────┘
+                       │
+┌──────────────────────▼──────────────────────────────────┐
+│  Platform theming                                       │
+│  Developer customizes (CSS variables, stylesheets…)     │
+└──────────────────────┬──────────────────────────────────┘
+                       │
+                  Rendered Output
+```
+
+The bottom layer — platform theming — is where you as a developer have the most control, and it is the most common place to apply branding.
+
+## Agent-Provided Styling Information
+
+### Semantic Hints
+
+Agents communicate presentation intent through **semantic hints**, not visual properties. A semantic hint describes what a piece of content *is*, not what color or size it should be. The catalog maps those hints to real platform components and styles them according to your design system.
+
+For example, in the Basic Catalog a `Text` component with `usageHint: "h1"` will be rendered as a heading, but the actual font size and weight come from your CSS — not from the agent:
+
+```json
+{
+  "id": "title",
+  "component": {
+    "Text": {
+      "text": { "literalString": "Welcome" },
+      "usageHint": "h1"
+    }
+  }
+}
+```
+
+**Common `usageHint` values for `Text`:**
+
+| Hint | Intended use |
+|---|---|
+| `h1` | Page-level heading |
+| `h2` | Section heading |
+| `h3` | Sub-section heading |
+| `h4` – `h5` | Nested headings |
+| `body` | Standard body copy |
+| `caption` | Small supporting text |
+
+Other components expose their own hint vocabularies — see the [Component Reference](/reference/components) for the full list.
+
+<Tip>
+  Always use semantic hints rather than visual properties. The agent should never hardcode pixel sizes or hex colors; those decisions belong to the catalog and the platform layer.
+</Tip>
+
+### The `theme` Property
+
+The A2UI v0.9 `createSurface` message accepts an arbitrary `theme` property. Its shape is defined by the catalog — `@a2ui/web_core` accepts `z.any().optional()` for this field, so any JSON structure that your catalog understands is valid.
+
+- Schema definition: [`renderers/web_core/src/v0_9/schema/server-to-client.ts`](https://github.com/a2ui-project/a2ui/blob/main/renderers/web_core/src/v0_9/schema/server-to-client.ts)
+- Catalog `themeSchema`: [`renderers/web_core/src/v0_9/catalog/types.ts`](https://github.com/a2ui-project/a2ui/blob/main/renderers/web_core/src/v0_9/catalog/types.ts)
+
+<Note>
+  The Basic Catalog's components are not wired to consume the `theme` field from the agent. To use agent-supplied theme data, you need to define your own catalog and handle the `theme` value explicitly. Want to help shape how this works? See [issue #1118](https://github.com/a2ui-project/a2ui/issues/1118).
+</Note>
+
+## Catalog Theming
+
+Theming is a responsibility of the **catalog implementation**. Each catalog can provide whatever theming solution makes sense for its platform.
+
+<Tabs>
+  <Tab title="Web (Basic Catalog)">
+    ### CSS Variables
+
+    The web Basic Catalog themes its components via **CSS custom properties** (variables). Each component injects a small default stylesheet that targets `:where(:root)`, giving it the lowest possible specificity. Your application stylesheet can override any variable simply by declaring it on `:root`.
+
+    For example, to change the primary action color across all Basic Catalog components:
+
+    ```css
+    :root {
+      --a2ui-color-primary: #ff5722;
+    }
+    ```
+
+    The full list of available variables is defined in [`renderers/web_core/src/v0_9/basic_catalog/styles/default.ts`](https://github.com/a2ui-project/a2ui/blob/main/renderers/web_core/src/v0_9/basic_catalog/styles/default.ts).
+
+    ### Per-Component Overrides
+
+    Beyond global variables, individual components expose their own scoped CSS properties. For example, the `Card` component exposes `--a2ui-card-background`:
+
+    ```css
+    :root {
+      --a2ui-card-background: #f8fafc;
+    }
+    ```
+
+    Check the documentation for each component to see the full list of exposed variables.
+
+    ### Dark Mode
+
+    The Basic Catalog web renderers support automatic dark mode via the `prefers-color-scheme` media query. To force a specific mode instead of following the system preference, add the `a2ui-light` or `a2ui-dark` class to any ancestor element of the rendered surface:
+
+    ```html
+    <!-- Force dark mode regardless of system preference -->
+    <div class="a2ui-dark">
+      <a2ui-surface surface-id="main"></a2ui-surface>
+    </div>
+
+    <!-- Force light mode -->
+    <div class="a2ui-light">
+      <a2ui-surface surface-id="main"></a2ui-surface>
+    </div>
+    ```
+
+    ### Custom Fonts
+
+    Load fonts as you normally would in a web application. Basic Catalog components inherit `font-family` from their container. Two additional variables let you set specific fonts for headings and monospace blocks:
+
+    ```css
+    :root {
+      --a2ui-font-family-title: 'Inter', sans-serif;
+      --a2ui-font-family-monospace: 'JetBrains Mono', monospace;
+    }
+    ```
+
+    ### Framework-Specific Examples
+
+    <CardGroup cols={2}>
+      <Card title="Lit Samples" icon="code" href="https://github.com/a2ui-project/a2ui/tree/main/samples/client/lit">
+        CSS variable usage in Lit shell samples
+      </Card>
+      <Card title="Angular Samples" icon="angular" href="https://github.com/a2ui-project/a2ui/tree/main/samples/client/angular">
+        CSS variable usage in Angular samples
+      </Card>
+      <Card title="React Samples" icon="react" href="https://github.com/a2ui-project/a2ui/tree/main/samples/client/react">
+        CSS variable usage in React samples
+      </Card>
+    </CardGroup>
+  </Tab>
+  <Tab title="Flutter">
+    Flutter's built-in `ThemeData` system applies naturally to GenUI SDK components. Pass a `ThemeData` object to your `MaterialApp` (or use `Theme.of(context)` lower in the tree) and the GenUI renderer will inherit those values.
+
+    For more detail, see the Flutter documentation:
+
+    - [Use themes to share colors and font styles](https://docs.flutter.dev/cookbook/design/themes)
+    - [Material ThemeData reference](https://api.flutter.dev/flutter/material/ThemeData-class.html)
+  </Tab>
+</Tabs>
+
+## Best Practices
+
+### 1. Use Semantic Hints, Not Visual Properties
+
+Agents should always communicate presentation intent semantically. Visual properties like font sizes and hex colors are not part of the A2UI protocol:
+
+```json
+// ✅ Good — semantic hint
+{
+  "component": {
+    "Text": {
+      "text": { "literalString": "Welcome" },
+      "usageHint": "h1"
+    }
+  }
+}
+```
+
+```json
+// ❌ Bad — visual properties are not supported
+{
+  "component": {
+    "Text": {
+      "text": { "literalString": "Welcome" },
+      "fontSize": 24,
+      "color": "#FF0000"
+    }
+  }
+}
+```
+
+### 2. Maintain Accessibility
+
+- Ensure sufficient color contrast ratios (WCAG AA: 4.5:1 for normal text, 3:1 for large text).
+- Test with screen readers after overriding default styles.
+- Verify keyboard navigation still works after customization.
+- Test your theme in both light and dark modes.
+
+### 3. Use Design Tokens
+
+Define reusable design tokens (colors, spacing, radii, etc.) and reference them in your CSS variable overrides. This keeps your A2UI theme in sync with the rest of your design system:
+
+```css
+:root {
+  /* Design tokens */
+  --color-brand-primary: #0f766e;
+  --color-surface-default: #ffffff;
+
+  /* A2UI variables wired to your tokens */
+  --a2ui-color-primary: var(--color-brand-primary);
+  --a2ui-card-background: var(--color-surface-default);
+}
+```
+
+### 4. Test Across Platforms
+
+- Test your theme on all target platforms (web, mobile, desktop).
+- Verify both light and dark modes render correctly.
+- Check different screen sizes and orientations.
+- Ensure a consistent brand experience across frameworks if you deploy multiple renderers.
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Defining Your Own Catalog" icon="layer-group" href="/guides/defining-your-own-catalog">
+    Build custom components that use your design system's tokens natively.
+  </Card>
+  <Card title="Component Reference" icon="puzzle-piece" href="/reference/components">
+    See every CSS variable exposed by Basic Catalog components.
+  </Card>
+  <Card title="Client Setup" icon="wrench" href="/guides/client-setup">
+    Install the renderer for your platform.
+  </Card>
+</CardGroup>

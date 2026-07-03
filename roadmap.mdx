@@ -1,0 +1,195 @@
+---
+title: "A2UI Roadmap: Protocol, Renderers, and Integrations"
+sidebarTitle: "Roadmap"
+description: "Protocol versions, renderer and transport coverage, agent framework integrations, recent milestones, and the long-term vision for A2UI v1.0."
+---
+
+The A2UI roadmap describes the current state of the protocol, the client renderer ecosystem, transport support, and agent framework integrations. The project is under active development, and priorities may shift based on community feedback and emerging use cases. This page is the canonical reference for what is stable, what is in progress, and what is planned next.
+
+<Info>
+  **Last updated:** June 2026. Have questions or want to influence priorities? [Start a discussion on GitHub](https://github.com/a2ui-project/a2ui/discussions) or use the [anonymous feedback form](https://forms.gle/Tj8E3dMsJ1NcvQnFA).
+</Info>
+
+## Protocol Versions
+
+| Version | Status | Notes |
+|---|---|---|
+| **v0.8** | 🆗 Prior | Initial public release, minimal ongoing support |
+| **v0.9** | 🆗 Prior | Feature complete, legacy support maintained |
+| **v0.9.1** | ✅ Current | Stable release — recommended for all new projects |
+| **v1.0** | 📋 Candidate | Release candidate; finalization targeting Q4 2026 |
+
+A2UI follows [Semantic Versioning](https://semver.org/): **MAJOR** versions signal incompatible protocol changes, **MINOR** versions add backward-compatible functionality, and **PATCH** versions address bug fixes.
+
+**Planned release cadence:**
+- **Major versions** (1.0, 2.0): Annual or when significant breaking changes are required.
+- **Minor versions** (1.1, 1.2): Quarterly with new features.
+- **Patch versions** (1.1.1, 1.1.2): As needed for bug fixes.
+
+## Renderers
+
+| Renderer | Status | Platform | Notes |
+|---|---|---|---|
+| **Web Core Lib** | ✅ Stable | Web | Shared core library for all official web renderers |
+| **Web Components (Lit)** | ✅ Stable | Web | Framework-agnostic; works in any HTML surface |
+| **Angular** | ✅ Stable | Web | Full Angular integration |
+| **React** | ✅ Stable | Web | Official A2UI React renderer |
+| **Flutter (GenUI SDK)** | ✅ Stable | Mobile / Desktop / Web | Works on iOS, Android, web, and desktop |
+| **Lynx** | ✅ Stable | Mobile / Web / Desktop | ReactLynx renderer for A2UI v0.9 · [Docs](https://lynxjs.org/next/react/genui/a2ui.html) |
+| **SwiftUI** | 📋 Planned | iOS / macOS | Planned Q3 2026 |
+| **Jetpack Compose** | 📋 Planned | Android | Planned Q3 2026 |
+| **Vue** | 💡 Proposed | Web | Community interest |
+| **Svelte / SvelteKit** | 💡 Proposed | Web | [Community interest](https://news.ycombinator.com/item?id=46287728) |
+| **ShadCN (React)** | 💡 Proposed | Web | Community interest |
+
+<Note>
+  Community-built renderers for Android (Jetpack Compose), React Native, SwiftUI, Vue, and HarmonyOS already exist in the ecosystem. See the [Ecosystem Renderers](/ecosystem/renderers) page for the full list with links and version support details.
+</Note>
+
+## Transports
+
+| Transport | Status | Notes |
+|---|---|---|
+| **A2A Protocol** | ✅ Complete | Native A2A transport (JSON-RPC) |
+| **AG-UI** | ✅ Complete | Day-zero compatibility |
+| **REST API** | ✅ Complete | Request / response over HTTP |
+| **WebSockets** | ✅ Complete | Bidirectional persistent connection |
+| **MCP (Model Context Protocol)** | ✅ Complete | Context sharing with MCP-compatible agents |
+
+## Agent Frameworks
+
+| Integration | Status | Notes |
+|---|---|---|
+| **Any agent with A2A support** | ✅ Complete | Day-zero compatibility via the A2A protocol |
+| **Any agent with AG-UI support** | ✅ Complete | Day-zero compatibility via AG-UI |
+| **AG2** | ✅ Complete | [A2UIAgent](https://docs.ag2.ai/latest/docs/user-guide/reference-agents/a2uiagent) reference agent |
+| **ADK** | 🚧 In Progress | Designing developer ergonomics; see [samples](https://github.com/a2ui-project/a2ui/tree/main/samples/agent/adk) |
+| **Genkit** | 💡 Proposed | Community interest |
+| **LangGraph** | 💡 Proposed | Community interest |
+| **CrewAI** | 💡 Proposed | Community interest |
+| **Claude Agent SDK** | 💡 Proposed | Community interest |
+| **OpenAI Agent SDK** | 💡 Proposed | Community interest |
+| **Microsoft Agent Framework** | 💡 Proposed | Community interest |
+| **AWS Strands Agent SDK** | 💡 Proposed | Community interest |
+
+## Recent Milestones
+
+### Q2 2025
+
+Many research projects across multiple Google teams, including integration into internal products and agents — marking the beginning of A2UI's internal adoption at Google before the public release.
+
+### Q4 2025 — v0.8
+
+- v0.8.0 specification released publicly under Apache 2.0.
+- A2A extension shipped (teased at [a2asummit.ai](https://a2asummit.ai)).
+- Flutter renderer launched (thanks Flutter team!).
+- Angular renderer launched (thanks Angular team!).
+- Web Components (Lit) renderer launched (thanks Opal team and friends!).
+- AG-UI / CopilotKit integration shipped (thanks CopilotKit team!).
+- GitHub public release under Apache 2.0 license.
+
+### Q2 2026 — v0.9
+
+- Specification v0.9 released.
+- Web core and all official web renderers updated to support v0.9.
+- Official A2UI React renderer launched.
+- Improved theming support across all renderers.
+- A2UI Agents SDK (Python) launched.
+- Developer ergonomics improvements throughout.
+
+## Upcoming Milestones
+
+### Q3 2026 — v0.9 Completion & v1.0 Prep
+
+**Jetpack Compose Renderer (Android)**
+- Native Compose UI components with Material Design 3.
+- Full Android platform integration.
+
+**SwiftUI Renderer (iOS / macOS)**
+- Native SwiftUI components with iOS design language.
+- macOS compatibility.
+
+**Performance Optimizations**
+- Renderer performance benchmarks.
+- Lazy loading for large component trees.
+- Virtual scrolling for long lists.
+- Component memoization strategies.
+
+### Q4 2026 — v1.0
+
+**Finalize v1.0 of the protocol with:**
+- Stability guarantees and a documented migration path from v0.9.
+- Comprehensive test suite for renderer compliance.
+- Certification program for third-party renderers.
+
+## Long-Term Vision
+
+<Accordion title="Full App UIs">
+  Configurable, customizable UIs facilitated by A2UI (agent optional):
+
+  - Developer tooling for A2UI at build time.
+  - Patterns for A2UI caching as a configuration layer for static UI.
+  - Designs and samples for full app composition from A2UI components.
+</Accordion>
+
+<Accordion title="Multi-Agent Coordination">
+  Enhanced support for multiple agents contributing to the same UI surface:
+
+  - Recommended agent composition patterns.
+  - Conflict resolution strategies for competing UI updates.
+  - Shared surface management across agent boundaries.
+</Accordion>
+
+<Accordion title="First-Class Accessibility">
+  Accessibility as a core protocol concern:
+
+  - ARIA attribute generation from A2UI descriptors.
+  - Screen reader optimization standards.
+  - Keyboard navigation requirements for compliant renderers.
+  - Contrast and color guidance baked into the catalog.
+</Accordion>
+
+<Accordion title="Advanced UI Patterns">
+  Support for richer interactions beyond the basic catalog:
+
+  - Drag and drop.
+  - Gestures and animations.
+  - 3D rendering (Three.js / WebGL, experimental).
+  - AR / VR interfaces (exploratory).
+</Accordion>
+
+<Accordion title="Ecosystem Growth">
+  Growing the third-party ecosystem:
+
+  - More agent framework integrations.
+  - Third-party component libraries that extend the catalog.
+  - Agent marketplace integration.
+  - Enterprise features and support options.
+</Accordion>
+
+## How to Influence the Roadmap
+
+The A2UI roadmap is shaped by community input. Here is how to make your voice heard:
+
+1. **Submit the feedback form** — Use [this anonymous form](https://forms.gle/Tj8E3dMsJ1NcvQnFA) to share requirements and priorities.
+2. **Vote on issues** — Give a 👍 to GitHub issues you care about.
+3. **Propose features** — Open a discussion on GitHub (search for existing discussions first).
+4. **Submit PRs** — Build the features you need (search for existing PRs first).
+5. **Join discussions** — Share your use cases and help the community understand real-world needs.
+
+## Stay Updated
+
+<CardGroup cols={2}>
+  <Card title="Watch the Repo" icon="bell" href="https://github.com/a2ui-project/a2ui">
+    Enable GitHub notifications to follow issues, PRs, and new releases as they ship.
+  </Card>
+  <Card title="GitHub Discussions" icon="comments" href="https://github.com/a2ui-project/a2ui/discussions">
+    Discuss roadmap priorities, share feedback, and propose new features with the community.
+  </Card>
+  <Card title="Ecosystem Renderers" icon="grid" href="/ecosystem/renderers">
+    See the full table of community renderers including version support and platform coverage.
+  </Card>
+  <Card title="A2UI in the World" icon="globe" href="/ecosystem/a2ui-in-the-world">
+    Read how Google Opal, Gemini Enterprise, and Flutter use A2UI in production today.
+  </Card>
+</CardGroup>

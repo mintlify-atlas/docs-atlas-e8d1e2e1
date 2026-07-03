@@ -1,0 +1,284 @@
+---
+title: "Building a New A2UI Renderer from Scratch"
+sidebarTitle: "Renderer Development"
+description: "Learn when to build a custom A2UI renderer, how to use @a2ui/web_core for web targets, and the full compliance checklist for v0.9.1, v1.0, and v0.8."
+---
+
+Building a new A2UI renderer means writing the bridge between the A2UI protocol stream and your target UI framework or platform. This guide walks you through the decision of whether to build at all, how to lean on `@a2ui/web_core` for any web-based renderer, and what the full protocol compliance checklist looks like for v0.9.1, v1.0, and v0.8.
+
+## Should you build a new renderer?
+
+Before starting, check whether an existing renderer already fits your target:
+
+<CardGroup cols={2}>
+  <Card title="React Renderer" icon="react" href="https://github.com/a2ui-project/a2ui/tree/main/renderers/react">
+    `@a2ui/react` — v0.9 native with the Generic Binder, or legacy v0.8 via `A2UIProvider`.
+  </Card>
+  <Card title="Angular Renderer" icon="a" href="https://github.com/a2ui-project/a2ui/tree/main/renderers/angular">
+    `@a2ui/angular` — Signal-based reactivity, `DynamicComponent` base class, extensible catalogs.
+  </Card>
+  <Card title="Lit Renderer" icon="fire" href="https://github.com/a2ui-project/a2ui/tree/main/renderers/lit">
+    `@a2ui/lit` — reference implementation, ships a `basicCatalog`, ideal for web components.
+  </Card>
+  <Card title="Non-web Targets" icon="mobile" href="#non-web-renderers-mobile-and-desktop">
+    Flutter, iOS, Android, or desktop — implement the protocol directly using the compliance checklist below.
+  </Card>
+</CardGroup>
+
+Build a new renderer when your target framework or platform isn't covered, when you need deep integration with a proprietary design system, or when you are targeting a non-web runtime (mobile, desktop, game engine) that cannot use `@a2ui/web_core`.
+
+---
+
+## Web renderers: use `@a2ui/web_core`
+
+If your target is any web framework — Vue, Svelte, Solid, Qwik, or a custom stack — do **not** reimplement message processing, state management, or schema validation from scratch. The `@a2ui/web_core` package is the framework-agnostic engine that all three maintained web renderers share, and it ships ~3,000 lines of battle-tested protocol logic.
+
+<Tip>
+  Starting a web renderer without `@a2ui/web_core` means reimplementing message processing, surface lifecycle, data-binding resolution, schema validation, and the expression parser. Unless you have a specific reason to diverge from the maintained renderers, use `@a2ui/web_core`.
+</Tip>
+
+### What `web_core` provides
+
+Every module you would otherwise have to write yourself is already in `@a2ui/web_core`:
+
+| Module | What it does |
+|---|---|
+| **`MessageProcessor`** | Processes the A2UI JSONL stream, dispatches messages, manages surface lifecycle |
+| **`SurfaceModel` / `SurfaceGroupModel`** | State management for surfaces, components, and data models |
+| **`DataModel` / `DataContext`** | Data-binding resolution, path-based lookups, template list rendering |
+| **`ComponentModel`** | Component tree state, adjacency list → tree resolution |
+| **Types & Schemas** | TypeScript types for all A2UI components, primitives, colors, styles, and JSON schema validation |
+| **Expression parser** | Client-side function evaluation (v0.9+) |
+
+### Version-specific exports
+
+`@a2ui/web_core` publishes a separate API surface for each protocol version so you can target exactly the version your renderer needs:
+
+```typescript
+// v0.8 — stable legacy API
+import {A2uiMessageProcessor} from '@a2ui/web_core/v0_8';
+
+// v0.9 / v0.9.1 — current production, with createSurface, custom catalogs, client functions
+import {MessageProcessor, SurfaceModel} from '@a2ui/web_core/v0_9';
+
+// v1.0 — release candidate, adds RPC action responses and surfaceProperties
+import {MessageProcessor} from '@a2ui/web_core/v1_0';
+
+// Shared types — usable across all versions
+import type * as Types     from '@a2ui/web_core/types/types';
+import type * as Primitives from '@a2ui/web_core/types/primitives';
+
+// Style and layout helpers — shared across all versions
+import * as Styles from '@a2ui/web_core/styles/index';
+```
+
+<Note>
+  The package root (`import ... from '@a2ui/web_core'`) defaults to the v0.8 entrypoint for backward compatibility. For new renderers, always import from the explicit versioned path such as `@a2ui/web_core/v0_9`.
+</Note>
+
+### The three things every web renderer must do
+
+All three maintained renderers follow the same pattern — `web_core` owns the protocol, the renderer owns the UI:
+
+<Steps>
+  <Step title="Map A2UI component types to your framework's components">
+    Create a catalog that maps each A2UI component name (`Text`, `Button`, `Column`, etc.) to a framework component. Lazy-load implementations where possible to keep the initial bundle small.
+
+    ```typescript
+    import {Catalog} from '@a2ui/web_core/v0_9';
+    import {z} from 'zod';
+    import {CommonSchemas} from '@a2ui/web_core/v0_9';
+
+    // Define the API shape with Zod
+    const MyButtonApi = {
+      name: 'Button',
+      schema: z.object({
+        label: CommonSchemas.DynamicString,
+        action: CommonSchemas.Action,
+        variant: z.enum(['primary', 'borderless']).optional(),
+      }),
+    };
+
+    // Register the catalog
+    export const myCatalog = new Catalog(
+      'https://example.com/catalogs/my-catalog.json',
+      [MyButton],   // component implementations
+      [],           // function implementations
+    );
+    ```
+  </Step>
+
+  <Step title="Subscribe to state changes from web_core and re-render">
+    Instantiate a `MessageProcessor`, feed it the agent's JSONL stream, and subscribe to surface lifecycle events so your UI updates reactively whenever new messages arrive.
+
+    ```typescript
+    import {MessageProcessor} from '@a2ui/web_core/v0_9';
+    import {basicCatalog} from '@a2ui/lit/v0_9'; // or your own catalog
+
+    const processor = new MessageProcessor([basicCatalog]);
+
+    // Subscribe to surface creation and deletion
+    processor.onSurfaceCreated(surface => {
+      renderSurface(surface);
+    });
+
+    processor.onSurfaceDeleted(surfaceId => {
+      teardownSurface(surfaceId);
+    });
+
+    // Feed the agent stream — call this as messages arrive
+    processor.processMessages(agentMessages);
+    ```
+  </Step>
+
+  <Step title="Forward user actions back through the MessageProcessor">
+    When a user interacts with a component (button click, form input, slider move), dispatch the resolved action back through the processor. The Generic Binder in v0.9 handles this automatically for components using `CommonSchemas.Action`; in v0.8 you resolve context paths manually.
+
+    ```typescript
+    // v0.9: the Generic Binder resolves context and dispatches automatically
+    // Your component implementation receives a ready-to-call () => void:
+    const MyButton = createComponentImplementation(MyButtonApi, ({props}) => {
+      // props.action is already a resolved () => void — just wire it up
+      return `<button onclick="${props.action}">${props.label}</button>`;
+    });
+
+    // v0.8: manual context resolution
+    function handleAction(node, surfaceId) {
+      const context = resolveActionContext(node, surfaceId);
+      processor.dispatchUserAction({surfaceId, context});
+    }
+    ```
+  </Step>
+</Steps>
+
+---
+
+## Non-web renderers (mobile and desktop)
+
+For platforms that cannot use `@a2ui/web_core` — Flutter, iOS (SwiftUI / UIKit), Android (Jetpack Compose), or desktop frameworks — you must implement the protocol directly. Use the compliance checklist in the next section as your specification.
+
+The core architecture is identical even without `web_core`:
+
+- **A JSONL stream parser** that decodes one JSON object per line
+- **A message dispatcher** that routes each message type to the correct handler
+- **A surface registry** keyed by `surfaceId`
+- **A component buffer** (flat map) per surface, with tree resolution logic
+- **A data model store** per surface, with path-based upsert semantics
+- **A data-binding resolver** that resolves `{ path: "..." }` references against the store
+- **An action dispatcher** that sends resolved user actions back to the agent
+
+---
+
+## Protocol compliance checklist
+
+Use the tab for the version you are targeting. **v0.9.1 is the recommended starting point for all new renderers.**
+
+<Tabs>
+  <Tab title="v0.9.1 — Current Production">
+    ### I. Core protocol
+
+    - **JSONL stream parsing** — read a streaming response line by line; decode each line as a distinct JSON object.
+    - **Message dispatcher** — identify message types (`createSurface`, `updateComponents`, `updateDataModel`, `deleteSurface`) and route to the correct handler.
+    - **MIME type validation** — intercept payloads based on the `application/a2ui+json` MIME type.
+    - **Surface management**:
+      - Key surfaces by `surfaceId`.
+      - `createSurface`: create the surface, bind `catalogId`, register `theme` and `sendDataModel`.
+      - `updateComponents`: add/update components in flat format using `"component": "Type"` discriminators.
+      - `deleteSurface`: remove the surface and all associated data and components.
+    - **Component buffering** — maintain a flat `Map<string, Component>` per surface; reconstruct the UI tree by resolving ID references in `children` arrays and `child` fields.
+    - **Data model store** — handle `updateDataModel` using standard JSON objects with upsert semantics.
+    - **Progressive rendering** — render immediately upon parsing a valid root component (ID `root`) inside `updateComponents`. No special rendering-start signal is required.
+    - **Data-binding resolution** — resolve simplified bound values: either literals or `{ "path": "..." }`.
+    - **Dynamic lists** — iterate over data arrays at `path` and render templates specified by `componentId`.
+    - **Client-side functions** — evaluate registered catalog-defined functions (e.g. `formatString` interpolation).
+    - **Client-to-server** — dispatch `action` (replaces v0.8 `userAction`) with resolved context paths. Include the full client-side data model in metadata when `sendDataModel` was requested. Send `ValidationFailed` error messages when schema validation fails.
+
+    ### II. Basic component catalog
+
+    - **Text** — `variant` (replaces v0.8 `usageHint`)
+    - **Image** — `fit`, `variant`
+    - **Icon**, **Video**, **AudioPlayer**, **Divider**
+    - **Row / Column** — `justify`, `align`, child `weight`
+    - **List**, **Card**
+    - **Tabs** — `tabs`
+    - **Modal** — `trigger`, `content`
+    - **Button** — `action`, `variant` (`primary`, `borderless`)
+    - **CheckBox**, **TextField** — `label`, `value`, `variant`, `checks`
+    - **ChoicePicker** — replaces v0.8 `MultipleChoice`; `options`, `variant` (`mutuallyExclusive`, `multipleSelection`)
+    - **Slider** — `min`, `max` (replaces v0.8 `minValue`, `maxValue`)
+  </Tab>
+
+  <Tab title="v1.0 — Release Candidate">
+    ### I. Core protocol
+
+    All requirements from v0.9.1, plus:
+
+    - **Surface properties** — handle `createSurface` with `surfaceProperties` (renamed from `theme`). Custom primary brand colors are no longer supported inside the surface schema.
+    - **Action responses (RPC)** — handle the `actionResponse` message from the server, which contains `actionId` and either a return `value` or an `error`.
+    - **Client-to-server** — generate and include an `actionId` inside every `action` payload. Support `wantResponse: true` on actions when the client expects a synchronous response. When using A2A, every A2A `Message` sent to the server must include an `a2uiClientCapabilities` object in the `metadata` field.
+    - **Capabilities** — expose `surfaceProperties` in place of `theme` during capabilities exchange.
+
+    ### II. Basic component catalog
+
+    All components from v0.9.1, plus:
+
+    - **Video** — `posterUrl` property for preview images
+    - **TextField** — `placeholder` property
+  </Tab>
+
+  <Tab title="v0.8 — Legacy">
+    <Note>
+      v0.8 is maintained for backward compatibility only. All new renderer projects should target v0.9.1. The `@a2ui/web_core/v0_8` entrypoint is available for web renderers that need legacy support.
+    </Note>
+
+    ### I. Core protocol
+
+    - **JSONL stream parsing** — read a streaming response line by line; decode each line as a distinct JSON object.
+    - **Message dispatcher** — identify message types (`beginRendering`, `surfaceUpdate`, `dataModelUpdate`, `deleteSurface`) and route to the correct handler.
+    - **Surface management**:
+      - Key surfaces by `surfaceId`.
+      - `surfaceUpdate`: add/update components in the surface's buffer.
+      - `deleteSurface`: remove the surface and all associated data and components.
+    - **Component buffering** — maintain a `Map<string, Component>` per surface; reconstruct the UI tree by resolving `id` references in `children.explicitList`, `child`, and `contentChild` fields.
+    - **Data model store** — handle `dataModelUpdate` using the adjacency-list representation (`[{ "key": "name", "valueString": "Bob" }]`).
+    - **Progressive rendering** — buffer updates until `beginRendering` is received; start rendering from the specified `root` ID and apply theme styles.
+    - **Data-binding resolution** — resolve `BoundValue` objects using `literalString`, `literalNumber`, or `path`.
+    - **Dynamic lists** — for `children.template`, iterate over the data list at `template.dataBinding` and render components using `template.componentId`.
+    - **Client-to-server** — dispatch `userAction` containing context with resolved paths. Include `a2uiClientCapabilities` in transport metadata.
+
+    ### II. Basic component catalog
+
+    - **Text** — `usageHint` (`h1`–`h5`, `body`, `caption`)
+    - **Image** — `fit`, `usageHint` (`avatar`, `hero`, etc.)
+    - **Icon**, **Video**, **AudioPlayer**, **Divider**
+    - **Row / Column** — `distribution`, `alignment`, child `weight`
+    - **List**, **Card**
+    - **Tabs** — `tabItems`
+    - **Modal** — `entryPointChild`, `contentChild`
+    - **Button** — `userAction`, `primary` variant
+    - **CheckBox**, **TextField** — `label`, `textFieldType`, `validationRegexp`
+    - **MultipleChoice** — `options`, `maxAllowedSelections`
+    - **Slider** — `minValue`, `maxValue`
+  </Tab>
+</Tabs>
+
+---
+
+## Reference implementations
+
+All three maintained web renderers are open-source and follow the `web_core` pattern described above. Reading their source is the fastest way to understand how a compliant renderer is structured.
+
+<CardGroup cols={2}>
+  <Card title="React renderer" icon="react" href="https://github.com/a2ui-project/a2ui/tree/main/renderers/react">
+    v0.9 native with the Generic Binder. Includes `createComponentImplementation` and `createBinderlessComponentImplementation` factories, plus visual parity tests against the Lit reference.
+  </Card>
+  <Card title="Lit renderer" icon="fire" href="https://github.com/a2ui-project/a2ui/tree/main/renderers/lit">
+    Reference implementation. Extend `A2uiLitElement` and return an `A2uiController` to get automatic prop resolution and Shadow DOM encapsulation.
+  </Card>
+  <Card title="Angular renderer" icon="a" href="https://github.com/a2ui-project/a2ui/tree/main/renderers/angular">
+    Signal-based. Configure via the `A2UI_RENDERER_CONFIG` injection token and extend `DynamicComponent` for custom catalog entries.
+  </Card>
+  <Card title="web_core source" icon="box" href="https://github.com/a2ui-project/a2ui/tree/main/renderers/web_core">
+    The shared foundation. Browse `src/v0_9/` for `MessageProcessor`, `SurfaceModel`, `DataModel`, `ComponentModel`, and the expression parser.
+  </Card>
+</CardGroup>

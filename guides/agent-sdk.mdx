@@ -1,0 +1,395 @@
+---
+title: "A2UI Agent SDK: Architecture and Core Interfaces"
+sidebarTitle: "Agent SDK"
+description: "Explore the A2UI Agent SDK's layered architecture — capability management, prompt engineering, streaming parsing, and payload validation."
+---
+
+The A2UI Agent SDK is the bridge between a language model and the A2UI rendering protocol. It handles three concerns that would otherwise require bespoke engineering on every agent: deciding which UI components the model is allowed to produce, assembling the system prompt that teaches the model how to produce them, and validating the model's output before it ever reaches a client. This guide covers the SDK's architecture in depth — from the top-level data flow down to the individual interfaces and the standard implementations that ship with the Python package.
+
+## Architecture Overview
+
+The SDK is intentionally layered. Each layer has a single responsibility, making it straightforward to swap implementations or port the SDK to a new language.
+
+```
+┌─────────────────────────────────────────────────┐
+│              Agent Framework (ADK, etc.)         │
+└──────────────────────┬──────────────────────────┘
+                       │
+┌──────────────────────▼──────────────────────────┐
+│           InferenceStrategy                      │
+│    (A2uiSchemaManager / A2uiTemplateManager)     │
+└──────────────────────┬──────────────────────────┘
+                       │
+┌──────────────────────▼──────────────────────────┐
+│           A2uiCatalog  ←  CatalogConfig          │
+│      (render_as_llm_instructions, validator)     │
+└──────────────────────┬──────────────────────────┘
+                       │
+┌──────────────────────▼──────────────────────────┐
+│  A2uiStreamParser  →  PayloadFixer  →  Validator │
+└──────────────────────┬──────────────────────────┘
+                       │
+┌──────────────────────▼──────────────────────────┐
+│       Transport (DataPart / application/a2ui+json)│
+└─────────────────────────────────────────────────┘
+```
+
+### The five-step data flow
+
+<Steps>
+  <Step title="Define capabilities">
+    The SDK loads component schemas from bundled package resources and organises them into **Catalogs**. Each catalog declares a stable `catalog_id` URL that clients use to advertise which components they can render.
+  </Step>
+  <Step title="Generate prompts">
+    The `InferenceStrategy` uses the selected catalog to assemble a system prompt that injects the JSON Schema and few-shot examples into the LLM's context window. Schemas can be pruned to only the components the agent needs, saving tokens.
+  </Step>
+  <Step title="Streaming parse">
+    The `A2uiStreamParser` buffers the LLM's output stream, detects `<a2ui-json>` … `</a2ui-json>` boundaries, and yields complete or partial UI messages progressively as they arrive.
+  </Step>
+  <Step title="Validate output">
+    The `A2uiValidator` runs deep semantic checks on the extracted JSON — schema compliance, component ID uniqueness, reachability, circular-reference detection, and path syntax — going well beyond what a basic JSON Schema validator can catch.
+  </Step>
+  <Step title="Serialize and send">
+    Validated payloads are wrapped in a standard transport envelope (an A2A `DataPart` with MIME type `application/a2ui+json`) and streamed to the client renderer.
+  </Step>
+</Steps>
+
+---
+
+## Core Interfaces
+
+### `CatalogConfig`
+
+`CatalogConfig` is a lightweight descriptor that tells the SDK where to load a component schema from and where to find its matching few-shot examples.
+
+```python
+class CatalogConfig:
+    name: str                          # Human-readable label, e.g. "BasicCatalog"
+    provider: A2uiCatalogProvider      # Loads the raw JSON Schema
+    examples_path: Optional[str] = None  # Path to example JSON files
+```
+
+The `provider` abstraction lets you load schemas from bundled package resources (the default), from a local filesystem path during development, or from any custom source you implement.
+
+---
+
+### `A2uiCatalog`
+
+`A2uiCatalog` is the processed form of a catalog — it holds the loaded schema, a ready-to-use validator, and the `render_as_llm_instructions` method that serialises the catalog for injection into a system prompt.
+
+```python
+class A2uiCatalog:
+    name: str
+    validator: A2uiValidator
+
+    def render_as_llm_instructions(self, options: InstructionOptions) -> str:
+        """
+        Generates a string representation of the catalog (schemas and examples)
+        suitable for inclusion in an LLM system prompt.
+        """
+        ...
+```
+
+The rendered string includes the full JSON Schema for every component in the catalog, formatted as a Markdown code block with surrounding context that tells the model exactly how to use it.
+
+---
+
+### `InferenceStrategy`
+
+`InferenceStrategy` is the abstract interface for assembling system prompts. Any class that implements it can be used to generate the instruction string passed to an LLM.
+
+```python
+from abc import ABC, abstractmethod
+from typing import Any, Optional
+
+
+class InferenceStrategy(ABC):
+
+    @abstractmethod
+    def generate_system_prompt(
+        self,
+        role_description: str,
+        workflow_description: str = "",
+        ui_description: str = "",
+        client_ui_capabilities: Optional[dict[str, Any]] = None,
+        allowed_components: Optional[list[str]] = None,
+        allowed_messages: Optional[list[str]] = None,
+        include_schema: bool = False,
+        include_examples: bool = False,
+        validate_examples: bool = False,
+    ) -> str:
+        """
+        Generates a system prompt for the LLM.
+        """
+        ...
+```
+
+<Accordion title="Parameter reference">
+  | Parameter | Type | Description |
+  |---|---|---|
+  | `role_description` | `str` | The agent's persona and primary objective |
+  | `workflow_description` | `str` | Optional rules appended to the default workflow section |
+  | `ui_description` | `str` | Conditional rules mapping user intents to UI templates |
+  | `client_ui_capabilities` | `dict` | Runtime capabilities declared by the client (catalog IDs, inline catalogs) |
+  | `allowed_components` | `list[str]` | Prune the schema to only these component names |
+  | `allowed_messages` | `list[str]` | Prune the schema to only these message types |
+  | `include_schema` | `bool` | Embed the full JSON Schema in the prompt |
+  | `include_examples` | `bool` | Embed few-shot examples in the prompt |
+  | `validate_examples` | `bool` | Validate example files against the schema before embedding |
+</Accordion>
+
+#### Standard implementations
+
+<CardGroup cols={2}>
+  <Card title="A2uiSchemaManager" icon="database">
+    Generates prompts by dynamically loading and organising component schemas and examples from catalogs. This is the recommended choice for most agents — it automatically selects the right catalog based on client capabilities and prunes unused components.
+  </Card>
+  <Card title="A2uiTemplateManager" icon="file-code">
+    Generates prompts using predefined UI templates or static structures. Useful when the agent's UI vocabulary is fixed at build time and you want deterministic prompts without runtime schema loading.
+  </Card>
+</CardGroup>
+
+---
+
+## Schema Management and Loading
+
+The SDK never defines component schemas in application code. Instead it **loads JSON Schema definitions that are bundled as package resources** at runtime. This keeps schemas versioned alongside the protocol and means your agent automatically picks up schema updates when you upgrade the SDK package.
+
+```python
+from a2ui.schema.constants import VERSION_0_8, VERSION_0_9
+from a2ui.schema.manager import A2uiSchemaManager
+from a2ui.basic_catalog.provider import BasicCatalog
+
+schema_manager = A2uiSchemaManager(
+    version=VERSION_0_9,
+    catalogs=[
+        BasicCatalog.get_config(version=VERSION_0_9)
+    ],
+)
+```
+
+<Note>
+  Loading schemas from a local `/specification` directory is supported as a **fallback for local development only**. Production agents should always use the bundled resource loader (`importlib.resources` in Python).
+</Note>
+
+### Schema loading principles
+
+| Principle | Description |
+|---|---|
+| **Freestanding catalogs** | Each catalog is self-contained — it defines its own types or references relative paths within the same directory tree. |
+| **Version awareness** | Passing `VERSION_0_8` loads v0.8 definitions; `VERSION_0_9` loads v0.9. Mixing versions in the same agent is not supported. |
+| **Resource bundling** | Standard schemas ship inside the SDK package. No external network calls are made at runtime. |
+
+---
+
+## Prompt Engineering and Examples
+
+The central value proposition of the SDK is generating **dynamic, token-efficient system prompts** that give the LLM exactly the context it needs — no more, no less.
+
+### Schema pruning
+
+If your agent only ever renders `Text`, `Button`, and `Column` components, pass `allowed_components` to strip all other component definitions from the prompt:
+
+```python
+A2UI_AND_AGENT_INSTRUCTION = schema_manager.generate_system_prompt(
+    role_description=ROLE_DESCRIPTION,
+    ui_description=UI_DESCRIPTION,
+    allowed_components=["Text", "Button", "Column", "Row"],
+    include_schema=True,
+    include_examples=True,
+)
+```
+
+### Few-shot example format
+
+Few-shot examples are loaded from JSON files in the `examples_path` directory. The SDK formats them inside standard prompt tags so the LLM learns the exact envelope structure it must produce:
+
+```
+CONVERSATIONAL TEXT RESPONSE
+<a2ui-json>
+[{
+  "surfaceUpdate": { ... }
+}]
+</a2ui-json>
+```
+
+These tags also act as deterministic delimiters for the streaming parser — the model is trained by example to always wrap its JSON inside them.
+
+---
+
+## The Streaming Parser
+
+`A2uiStreamParser` processes the LLM's text stream in real time, extracting A2UI payloads without waiting for the full response to complete. This enables progressive rendering on the client side.
+
+### Basic usage
+
+```python
+from a2ui.streaming.parser import A2uiStreamParser
+
+parser = A2uiStreamParser(catalog=my_catalog)
+
+for chunk in llm_stream:
+    parts = parser.process_chunk(chunk)
+    for part in parts:
+        if part.a2ui_json:
+            # Send UI update to client immediately
+            send_to_client(part.a2ui_json)
+        if part.text:
+            # Stream conversational text to user
+            stream_text(part.text)
+```
+
+### How the parser works internally
+
+<Accordion title="Chunk buffering">
+  Incoming text chunks are appended to an internal string buffer. The parser passes conversational text through unchanged until it detects the `<a2ui-json>` opening tag, at which point it switches into JSON accumulation mode.
+</Accordion>
+
+<Accordion title="Regex block extraction">
+  Once both the opening and closing tags are present in the buffer, the parser applies a `re.DOTALL` regex pattern to extract the raw JSON string. Any text before the opening tag is yielded as a conversational text part; the JSON content is yielded as an A2UI JSON part.
+</Accordion>
+
+<Accordion title="Sanitisation and cleanup">
+  Before parsing, the parser strips markdown code-block delimiters (`` ```json `` … `` ``` ``) that the LLM may have accidentally inserted inside the tags. This makes the pipeline robust to common model formatting quirks.
+</Accordion>
+
+<Accordion title="Multi-block support">
+  A single LLM response may contain multiple `<a2ui-json>` blocks. The parser scans the entire buffer, splits content into alternating text and JSON parts, and clears processed blocks so memory stays bounded during long streams.
+</Accordion>
+
+---
+
+## Validation Pipeline
+
+LLMs produce syntactically broken or semantically invalid JSON more often than you might expect. The SDK's validation pipeline is the safety net that prevents bad payloads from reaching the client.
+
+### `PayloadFixer`
+
+Before structural parsing, `PayloadFixer` applies a sequence of lightweight string transformations to correct common LLM formatting errors:
+
+- Trailing commas inside objects and arrays
+- Unquoted object keys
+- Unterminated brackets and braces
+
+### `A2uiValidator`
+
+After the JSON is parseable, `A2uiValidator` runs five categories of deeper checks:
+
+<Steps>
+  <Step title="JSON Schema validation">
+    Verifies that every field in the payload conforms to the A2UI JSON Schema for the selected catalog and protocol version.
+  </Step>
+  <Step title="Component integrity">
+    Confirms that all component IDs are unique across the payload and that a valid `root` component exists where required.
+  </Step>
+  <Step title="Topology and reachability">
+    Detects circular references (including self-references) and orphaned components. Every component must be reachable from the root of the component tree.
+  </Step>
+  <Step title="Recursion depth limits">
+    Enforces a maximum nesting depth of 50 levels for component trees and 5 levels for function call expressions, preventing stack overflows in client renderers.
+  </Step>
+  <Step title="Path syntax validation">
+    Validates all JSON Pointer strings used for data binding paths, catching malformed paths that would cause silent binding failures at render time.
+  </Step>
+</Steps>
+
+---
+
+## Transport and A2A Integration
+
+Once a payload passes validation it must be transmitted to the client. A2UI uses the **Agent-to-Agent (A2A) DataPart** transport envelope for this.
+
+```python
+from a2ui.transport import create_a2ui_part
+
+# Wrap validated JSON in a DataPart with the correct MIME type
+part = create_a2ui_part(validated_a2ui_json)
+# → DataPart(mimeType="application/a2ui+json", data=<json bytes>)
+```
+
+The `application/a2ui+json` MIME type signals to any A2A-compatible client that the part should be routed to an A2UI renderer rather than displayed as plain text.
+
+<Note>
+  Always include a fallback `TextPart` alongside your `DataPart` when the rendering environment is unknown. Clients that do not support A2UI will display the text instead of silently dropping the message.
+</Note>
+
+---
+
+## The Basic Catalog
+
+The SDK ships with the **A2UI Basic Catalog** — a ready-to-use set of foundational components (Button, Text, Row, Column, Image, etc.) that covers the majority of common agent UIs. You can use it without any custom schema authoring:
+
+```python
+from a2ui.schema.constants import VERSION_0_9
+from a2ui.schema.manager import A2uiSchemaManager
+from a2ui.basic_catalog.provider import BasicCatalog
+
+schema_manager = A2uiSchemaManager(
+    version=VERSION_0_9,
+    catalogs=[BasicCatalog.get_config(version=VERSION_0_9)],
+)
+```
+
+For more specialised UIs, you can define your own catalog by extending or replacing the basic one. See [Defining Your Own Catalog](/guides/defining-your-own-catalog) for instructions.
+
+---
+
+## Agent Framework Integration
+
+The SDK integrates with popular agent frameworks through a set of standard adapters.
+
+### `SendA2uiToClientToolset`
+
+This toolset exposes a `send_a2ui_json_to_client` tool directly to the LLM. When the LLM calls the tool, the SDK validates the JSON arguments against the schema _before_ returning a success response to the framework — catching errors at the point of generation rather than at delivery.
+
+### Part converters
+
+Part converters translate between framework-native output types and A2UI DataParts:
+
+- **Tool-to-Part**: Intercepts a successful tool call response and wraps the validated JSON in an A2UI DataPart.
+- **Text-to-Part**: Runs the LLM's text output through the streaming parser and emits DataParts whenever a complete `<a2ui-json>` block is detected.
+
+### Event converters
+
+Event converters sit in the agent framework's event stream and apply the part converter transparently. The core agent logic requires no modification — validation and extraction happen in the background.
+
+---
+
+## Porting the SDK to a New Language
+
+The SDK architecture is designed to be language-agnostic. If you are implementing a Kotlin, C++, or other language port, follow this phased sequence:
+
+<Steps>
+  <Step title="Core foundation">
+    Implement `CatalogConfig`, its `Provider`, `A2uiCatalog`, and a basic `InferenceStrategy`. Verify you can load a JSON file via a provider and print its schema.
+  </Step>
+  <Step title="Prompt generation">
+    Implement `generate_system_prompt`. Confirm it outputs valid Markdown with embedded JSON schemas and examples matching the Python reference output.
+  </Step>
+  <Step title="Parsing and validation">
+    Implement the streaming parser and validator. Use the centralized YAML conformance suite at `agent_sdks/conformance/` to verify behavioral parity with the Python implementation.
+  </Step>
+  <Step title="Transport">
+    Create helper utilities to wrap payloads in transport Parts appropriate for your ecosystem.
+  </Step>
+  <Step title="Sample application">
+    Build a minimal end-to-end sample (a CLI agent or local server) and verify it against the reference Python samples in `samples/agent/adk/restaurant_finder`.
+  </Step>
+</Steps>
+
+<Warning>
+  Keep the SDK idiomatic to your target language. Do not force Python patterns onto Kotlin or C++ — use builder patterns, macros, or other language-native idioms where they are more ergonomic. Architecture must be consistent; style should be native.
+</Warning>
+
+---
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Agent Development Guide" icon="code" href="/guides/agent-development">
+    Build a complete restaurant-finder agent from scratch using the SDK.
+  </Card>
+  <Card title="MCP Integration" icon="plug" href="/guides/mcp-integration">
+    Serve A2UI interfaces from an MCP server using tools and embedded resources.
+  </Card>
+</CardGroup>

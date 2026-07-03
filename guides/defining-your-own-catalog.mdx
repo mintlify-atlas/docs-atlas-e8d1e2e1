@@ -1,0 +1,232 @@
+---
+title: "Defining Your Own A2UI Component Catalog for Agents"
+sidebarTitle: "Custom Catalogs"
+description: "Build a catalog that maps directly to your design system. Restrict agents to trusted components, eliminate mappers, and enforce type safety end-to-end."
+---
+
+The Basic Catalog that ships with A2UI is intentionally minimal — it is designed to be quickly implementable across many different renderers. Most production applications will outgrow it fast and benefit from defining a catalog that reflects their own design system. When you control the catalog, the agent generates UI from exactly the components you already trust, with no translation layer in between.
+
+## Why Define Your Own Catalog?
+
+Every A2UI surface is driven by a **Catalog**: a JSON Schema file that tells the agent which components, functions, and themes it is allowed to use. Replacing or extending the Basic Catalog with your own offers three concrete benefits:
+
+<CardGroup cols={2}>
+  <Card title="Design System Alignment" icon="swatchbook">
+    Restrict the agent to your application's exact visual language — your buttons, your typography, your spacing — rather than generic placeholders.
+  </Card>
+  <Card title="Security and Type Safety" icon="shield-check">
+    You register entire catalogs with your client application. Only trusted, validated components can ever be rendered.
+  </Card>
+  <Card title="No Mappers Needed" icon="arrow-right-arrow-left">
+    Build catalogs that directly reflect your client's design system. You never need an adapter that maps a generic catalog to your components.
+  </Card>
+  <Card title="Agent Precision" icon="crosshairs">
+    A narrower, well-described catalog gives the agent better signal about when and how to use each component, improving output quality.
+  </Card>
+</CardGroup>
+
+<Note>
+  The Basic Catalog is just one example implementation. It is intentionally sparse so that it is easy to support across many renderers and platforms.
+</Note>
+
+## How It Works
+
+The lifecycle from catalog definition to rendered UI has five stages:
+
+<Steps>
+  <Step title="Define the Catalog">
+    Create a catalog definition — a JSON Schema listing the components, functions, and themes your application supports. This is the contract between the agent and your renderer.
+  </Step>
+  <Step title="Register the Catalog">
+    Register the catalog and its corresponding component implementations (renderers) with your client application via the renderer's configuration API (e.g., `A2UI_RENDERER_CONFIG` in Angular, or the provider `catalog` prop in React/CopilotKit).
+  </Step>
+  <Step title="Announce Support">
+    The client informs the agent which catalogs it supports via the `supportedCatalogIds` field in the initial handshake. The agent will only generate components from catalogs it knows the client can render.
+  </Step>
+  <Step title="Agent Selects Catalog">
+    For each UI surface, the agent chooses one of the announced catalogs and declares it via the `catalogId` field inside the surface-creation message (e.g., `createSurface` in v0.9).
+  </Step>
+  <Step title="Agent Generates UI">
+    The agent generates component messages using only the components defined in the selected catalog, referred to by name. The renderer looks up each component name in its registered catalog and mounts the matching implementation.
+  </Step>
+</Steps>
+
+## Catalog JSON Schema Structure
+
+A catalog definition is a JSON Schema document. At minimum it contains a stable identifier, a list of component definitions, optional function definitions, and optional theme fields.
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "catalogId": "my-app-catalog",
+  "components": {
+    "StatusBadge": {
+      "description": "A colored status badge for conveying task or entity state.",
+      "properties": {
+        "text": {
+          "type": "string",
+          "description": "Label displayed inside the badge."
+        },
+        "variant": {
+          "type": "string",
+          "enum": ["success", "warning", "error"],
+          "description": "Visual style of the badge."
+        }
+      },
+      "required": ["text"]
+    },
+    "Metric": {
+      "description": "A key metric card with a label, value, and optional trend indicator.",
+      "properties": {
+        "label": { "type": "string" },
+        "value": { "type": "string" },
+        "trend": {
+          "type": "string",
+          "enum": ["up", "down"]
+        }
+      },
+      "required": ["label", "value"]
+    }
+  },
+  "functions": {
+    "openDetailPanel": {
+      "description": "Opens the detail panel for a given entity ID.",
+      "parameters": {
+        "entityId": { "type": "string" }
+      }
+    }
+  }
+}
+```
+
+Key fields:
+
+| Field | Required | Description |
+|---|---|---|
+| `catalogId` | ✅ | A stable, unique handle the agent uses to target this catalog. |
+| `components` | ✅ | Map of component names to their JSON Schema definitions. |
+| `functions` | Optional | Client-side functions the agent can invoke (e.g., open a panel, trigger navigation). |
+| Theme fields | Optional | Arbitrary theme data passed through `createSurface`. See [Theming](/guides/theming). |
+
+## Implementation Guide
+
+<Tabs>
+  <Tab title="Web (Lit / Angular / React)">
+    To implement your own catalog on the web:
+
+    1. **Create a JSON Schema** containing your component definitions (see structure above).
+    2. **Create `Component` objects** — one per component definition — that map the schema name to a framework-specific renderer (a Lit element, an Angular component, or a React component).
+    3. **Create a `Catalog` object** that groups the component objects, the schema, and any action handlers together.
+    4. **Register the catalog** with the renderer's configuration:
+
+    **Angular (`@a2ui/angular/v0_9`):**
+
+    ```typescript
+    import { ApplicationConfig } from '@angular/core';
+    import { A2UI_RENDERER_CONFIG, A2uiRendererService } from '@a2ui/angular/v0_9';
+    import { myAppCatalog } from './catalogs/my-app-catalog';
+
+    export const appConfig: ApplicationConfig = {
+      providers: [
+        {
+          provide: A2UI_RENDERER_CONFIG,
+          useValue: {
+            catalogs: [myAppCatalog],
+            actionHandler: action => {
+              console.log('Action dispatched:', action);
+            },
+          },
+        },
+        A2uiRendererService,
+      ],
+    };
+    ```
+
+    **React (`@a2ui/react/v0_9`) with CopilotKit:**
+
+    ```tsx
+    import { CopilotKitProvider } from '@copilotkit/react-core/v2';
+    import { myCatalog } from '@/lib/a2ui/renderers';
+
+    export default function Layout({ children }: { children: React.ReactNode }) {
+      return (
+        <CopilotKitProvider runtimeUrl="/api/copilotkit" a2ui={{ catalog: myCatalog }}>
+          {children}
+        </CopilotKitProvider>
+      );
+    }
+    ```
+
+    <Note>
+      Detailed per-framework implementation guides for standalone (non-CopilotKit) usage are coming soon. For CopilotKit-based React flows, see the [A2UI with Any Agent Framework](/guides/a2ui-with-any-agent-framework) guide.
+    </Note>
+  </Tab>
+  <Tab title="Flutter">
+    To implement your own catalog in Flutter using the GenUI SDK:
+
+    1. **Define a JSON Schema** describing your widget properties (same structure as the web example above).
+    2. **Map the schema to Flutter widgets** by creating a custom renderer that instantiates the correct widget class for each component name.
+    3. **Register the renderer** with the GenUI SDK configuration so it is used whenever the agent targets your `catalogId`.
+
+    ```dart
+    // Example: registering a custom component renderer
+    GenUIConfig(
+      catalogId: 'my-app-catalog',
+      componentRenderers: {
+        'StatusBadge': (props) => StatusBadgeWidget(
+          text: props['text'] as String,
+          variant: props['variant'] as String? ?? 'success',
+        ),
+        'Metric': (props) => MetricWidget(
+          label: props['label'] as String,
+          value: props['value'] as String,
+          trend: props['trend'] as String?,
+        ),
+      },
+    );
+    ```
+
+    <Note>
+      A detailed Flutter integration guide is coming soon. See the [GenUI SDK docs](https://docs.flutter.dev/ai/genui) in the meantime.
+    </Note>
+  </Tab>
+</Tabs>
+
+## Security Considerations
+
+Because the agent produces the component names and properties that your renderer will mount, treat catalog registration as a security boundary.
+
+<Warning>
+  Only register components you fully trust. An agent-controlled component name should never be able to escape the boundaries defined by your catalog.
+</Warning>
+
+Follow these three practices:
+
+<Steps>
+  <Step title="Allowlist components">
+    Register only the components your application explicitly supports. Do not expose components that offer dangerous capabilities (for example, components that execute arbitrary scripts or make unauthenticated network requests) unless strictly controlled.
+  </Step>
+  <Step title="Validate properties">
+    Always validate component properties from agent messages against expected type constraints before passing them to your renderer. The Zod schemas generated from your catalog definition are a natural place to do this.
+  </Step>
+  <Step title="Sanitize text content">
+    Avoid rendering un-sanitized strings provided by the agent unless safe bounds are established. Treat agent-provided text as untrusted input and apply the same sanitization you would apply to any user-generated content.
+  </Step>
+</Steps>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Theming & Styling" icon="palette" href="/guides/theming">
+    Customize the look and feel of your catalog's components.
+  </Card>
+  <Card title="Component Reference" icon="puzzle-piece" href="/reference/components">
+    Explore standard component types available for reuse in the Basic Catalog.
+  </Card>
+  <Card title="A2UI with Any Agent Framework" icon="plug" href="/guides/a2ui-with-any-agent-framework">
+    Wire your catalog to an agent using CopilotKit and AG-UI.
+  </Card>
+  <Card title="Client Setup" icon="wrench" href="/guides/client-setup">
+    Install and configure the renderer for your platform.
+  </Card>
+</CardGroup>

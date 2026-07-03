@@ -1,0 +1,223 @@
+---
+title: "A2UI Transports: Delivering Messages from Agent to Client"
+sidebarTitle: "Transports"
+description: "Overview of every A2UI transport—A2A Protocol, AG-UI, REST, WebSockets, and SSE—with status, use cases, and guidance on choosing the right delivery mechanism."
+---
+
+A2UI is **transport-agnostic**: the protocol defines a sequence of JSON messages, and anything that can carry JSON from an agent to a client is a valid transport. The choice of transport depends on your application architecture — whether you are building a multi-agent enterprise system, a full-stack React application, or a simple REST endpoint serving a mobile client.
+
+```
+Agent (LLM) → A2UI Message Generator → Transport → Client Renderer → Native UI
+```
+
+The transport layer's only job is to deliver A2UI messages in order. The messages themselves contain all the information needed to build and update the UI.
+
+---
+
+## Transport Comparison
+
+| Transport | Status | Best For |
+|-----------|--------|---------|
+| **A2A Protocol** | ✅ Stable | Multi-agent systems, enterprise service meshes, agents with built-in auth |
+| **AG-UI (CopilotKit)** | ✅ Stable | Full-stack React, Vue, and Angular applications |
+| **REST / HTTP** | 📋 Planned | Simple request-response patterns, mobile clients |
+| **WebSockets** | 💡 Proposed | Real-time bidirectional communication, persistent connections |
+| **SSE (Server-Sent Events)** | 💡 Proposed | One-way streaming from server to browser |
+
+<Note>
+  Any JSON-capable transport works. If your application already has a reliable message-passing channel, you can deliver A2UI messages over it without adopting a new protocol.
+</Note>
+
+---
+
+## A2A Protocol
+
+The [Agent2Agent (A2A) protocol](https://a2a-protocol.org) is a standardized, open-source protocol for secure communication between AI agents and between agents and their clients. It is the recommended transport for production A2UI deployments because it provides authentication, message framing, and multi-agent orchestration out of the box.
+
+### How A2A works with A2UI
+
+An A2UI-capable agent advertises its support in its **A2A Agent Card** by declaring an A2UI extension URI and listing the catalog IDs it supports:
+
+```json
+{
+  "name": "Travel Assistant Agent",
+  "description": "Provides flight and hotel booking with rich UI.",
+  "capabilities": {
+    "extensions": [
+      {
+        "uri": "https://a2ui.org/a2a-extension/a2ui/v0.9",
+        "description": "Provides agent-driven UI using the A2UI JSON format.",
+        "params": {
+          "supportedCatalogIds": [
+            "https://a2ui.org/specification/v0_9_1/catalogs/basic/catalog.json"
+          ]
+        }
+      }
+    ]
+  }
+}
+```
+
+The client includes its own `supportedCatalogIds` in the metadata of every A2A message it sends to the agent:
+
+```json
+{
+  "parts": [{ "text": "Book me a flight to Tokyo" }],
+  "metadata": {
+    "a2uiClientCapabilities": {
+      "supportedCatalogIds": [
+        "https://a2ui.org/specification/v0_9_1/catalogs/basic/catalog.json"
+      ]
+    }
+  }
+}
+```
+
+The agent streams A2UI messages (JSONL) back through the A2A response channel. The client renderer intercepts these lines and builds the UI surface in real time.
+
+### Benefits of A2A
+
+- **Authentication and authorization** built into the protocol.
+- **Multi-transport bindings** — A2A runs over HTTP, gRPC, WebSockets, and message queues.
+- **Agent orchestration** — cleanly routes messages in multi-agent pipelines without the orchestrator needing to understand A2UI message internals.
+- **Zero additional setup** for teams already using A2A.
+
+<Tip>
+  See the [v0.8 Legacy Specification](/specification/v0-8-legacy) for the full A2A extension schema and capability negotiation details.
+</Tip>
+
+---
+
+## AG-UI (CopilotKit)
+
+[AG-UI](https://ag-ui.com/) is a bidirectional, real-time agent–UI protocol created and maintained by CopilotKit. It handles transport, state synchronization, and event routing automatically, making it the fastest path to integrating A2UI into a full-stack React, Vue, or Angular application.
+
+### How AG-UI works with A2UI
+
+AG-UI wraps A2UI messages as **AG-UI custom events** and delivers them over its existing WebSocket or SSE channel. On the client side, the A2UI renderer subscribes to these events and processes them exactly as it would over any other transport:
+
+```
+Agent → A2UI messages → AG-UI event wrapper → AG-UI channel → A2UI renderer → UI
+```
+
+User actions (button clicks, form submissions) flow back to the agent through the same AG-UI channel in reverse, enabling the full request–response–update cycle without any additional infrastructure.
+
+### What AG-UI handles for you
+
+- Transport negotiation (WebSocket with SSE fallback).
+- Client state synchronization across re-renders.
+- Reconnection and message replay on network interruption.
+- Integration with CopilotKit's agent framework adapters (LangGraph, CrewAI, Mastra, and others).
+
+<Tip>
+  See the guide [Use A2UI with Any Agent Framework (Using AG-UI)](/guides/a2ui-with-any-agent-framework) to configure CopilotKit with your agent framework of choice and enable A2UI rendering.
+</Tip>
+
+---
+
+## REST / HTTP
+
+For simpler patterns — or when streaming is not required — A2UI messages can be delivered as a standard HTTP response body. The response body is a JSONL stream (one message per newline) or a JSON array of messages.
+
+### Basic HTTP pattern
+
+The agent streams JSONL over a regular HTTP response with `Content-Type: application/x-ndjson`:
+
+```
+POST /agent/query
+Content-Type: application/json
+
+{ "message": "Show me my order history" }
+```
+
+```
+HTTP/1.1 200 OK
+Content-Type: application/x-ndjson
+
+{ "version": "v0.9", "createSurface": { "surfaceId": "orders", "catalogId": "..." } }
+{ "version": "v0.9", "updateComponents": { "surfaceId": "orders", "components": [...] } }
+{ "version": "v0.9", "updateDataModel": { "surfaceId": "orders", "path": "/", "value": {...} } }
+```
+
+The client reads the response body line by line and hands each parsed JSON object to the A2UI renderer.
+
+<Note>
+  REST transport is planned for official support. In the meantime, the JSONL-over-HTTP pattern works with any HTTP client that supports streaming responses.
+</Note>
+
+---
+
+## WebSockets
+
+WebSockets provide a persistent, full-duplex connection, making them ideal for long-running sessions where the agent and client exchange many messages — for example, a conversational UI that builds and updates surfaces over multiple turns.
+
+### Bidirectional pattern
+
+The agent sends A2UI messages as individual WebSocket text frames (one JSON object per frame):
+
+```
+Client → WS frame: { "message": "Update the dashboard" }
+
+Agent → WS frame: { "version": "v0.9", "updateDataModel": { "surfaceId": "dashboard", ... } }
+Agent → WS frame: { "version": "v0.9", "updateComponents": { "surfaceId": "dashboard", ... } }
+```
+
+User action events travel the other direction over the same connection:
+
+```
+Client → WS frame: { "version": "v0.9", "action": { "name": "refresh", "surfaceId": "dashboard" } }
+```
+
+<Note>
+  WebSocket transport is proposed but not yet in the formal specification. The framing pattern described here follows community practice.
+</Note>
+
+---
+
+## Server-Sent Events (SSE)
+
+SSE provides a one-way streaming channel from server to client over a standard HTTP connection. It is well-supported in browsers and does not require a WebSocket handshake, making it a lightweight option for streaming A2UI messages to web clients.
+
+Each A2UI message is sent as an SSE `data:` event:
+
+```
+GET /agent/stream?sessionId=abc123
+Accept: text/event-stream
+
+data: { "version": "v0.9", "createSurface": { "surfaceId": "main", "catalogId": "..." } }
+
+data: { "version": "v0.9", "updateComponents": { "surfaceId": "main", "components": [...] } }
+
+data: { "version": "v0.9", "updateDataModel": { "surfaceId": "main", "path": "/", "value": {...} } }
+```
+
+User actions from the client are sent back via a separate POST request or WebSocket channel.
+
+<Note>
+  SSE transport is proposed but not yet in the formal specification.
+</Note>
+
+---
+
+## Custom Transports
+
+Because A2UI messages are plain JSON objects, any message-passing system that can carry JSON is a valid transport. This includes gRPC (with JSON encoding), message queues (AMQP, Kafka, Pub/Sub), IPC pipes, and custom protocols.
+
+The only requirement is that the receiver can parse each A2UI message as a JSON object and pass it to the renderer in the order it was sent. For streaming use cases, JSONL (newline-delimited JSON) is the conventional framing format.
+
+---
+
+<CardGroup cols={2}>
+  <Card title="Message Reference" icon="envelope" href="/reference/messages">
+    All A2UI message types, schemas, and streaming examples.
+  </Card>
+  <Card title="Data Binding" icon="link" href="/reference/data-binding">
+    How reactive data updates flow through the component tree.
+  </Card>
+  <Card title="Catalogs" icon="book" href="/reference/catalogs">
+    Catalog negotiation and how clients declare their capabilities.
+  </Card>
+  <Card title="Component Reference" icon="puzzle-piece" href="/reference/components">
+    Full gallery of basic catalog components and properties.
+  </Card>
+</CardGroup>

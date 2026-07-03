@@ -1,0 +1,135 @@
+---
+title: "What Is A2UI: The Agent-to-User Interface Protocol"
+sidebarTitle: "Introduction"
+description: "A2UI is an open-source declarative UI protocol that lets AI agents generate rich, interactive UIs rendered natively on web, mobile, and desktop."
+---
+
+A2UI (Agent-to-User Interface) is an open-source protocol that lets AI agents describe rich, interactive interfaces as declarative JSON — which the client application then renders using its own native components. Rather than restricting agents to plain text or raw HTML, A2UI gives agents a safe, structured vocabulary for expressing forms, dashboards, and complex workflows across web, mobile, and desktop platforms without ever executing arbitrary code on the client.
+
+## The Problem A2UI Solves
+
+Text-only agent interactions force users through slow, back-and-forth conversations for tasks that a single UI could handle instantly:
+
+```
+User:  "Book a table for 2 tomorrow at 7pm"
+Agent: "Okay, for what day?"
+User:  "Tomorrow."
+Agent: "What time would you like?"
+User:  "7pm."
+Agent: "How many guests?"
+```
+
+A better experience: the agent generates a reservation form — date picker, guest selector, submit button — and the user fills it in one step.
+
+The challenge is that agents often run remotely, across servers or organizational trust boundaries. They can't directly manipulate the host application's UI. The traditional workaround — embedding HTML or JavaScript in iframes — is heavy, visually disjointed, and introduces security complexity. What's needed is a way to transmit UI that is **safe like data** but **expressive like code**.
+
+A2UI solves this with JSON messages that describe *what* to render. The client maps those descriptions to its own native widgets, inheriting the host app's styling, accessibility, and performance characteristics automatically.
+
+## A Concrete A2UI Message
+
+The following is a simplified v0.9 exchange. Two messages — `createSurface` and `updateComponents` — are all an agent needs to produce an interactive booking form:
+
+```json
+{ "version": "v0.9.1", "createSurface": {
+    "surfaceId": "booking",
+    "catalogId": "https://a2ui.org/specification/v0_9_1/catalogs/basic/catalog.json"
+  }
+}
+```
+
+```json
+{ "version": "v0.9.1", "updateComponents": {
+    "surfaceId": "booking",
+    "components": [
+      { "id": "title",       "component": "Text",          "text": "Book Your Table", "variant": "h1" },
+      { "id": "datetime",    "component": "DateTimeInput", "value": { "path": "/booking/date" }, "enableDate": true },
+      { "id": "submit-text", "component": "Text",          "text": "Confirm" },
+      { "id": "submit-btn",  "component": "Button",        "child": "submit-text",
+        "variant": "primary", "action": { "event": { "name": "confirm_booking" } } }
+    ]
+  }
+}
+```
+
+```json
+{ "version": "v0.9.1", "updateDataModel": {
+    "surfaceId": "booking",
+    "path": "/booking",
+    "value": { "date": "2025-12-16T19:00:00Z" }
+  }
+}
+```
+
+<Note>
+  Components are a **flat list with ID references**, not a nested tree. This flat adjacency-list model is deliberately LLM-friendly — the agent can stream components one at a time and correct any individual entry by ID without regenerating the whole structure.
+</Note>
+
+## Core Value Proposition
+
+### Security
+
+A2UI payloads are pure data. The agent never sends executable code. The host application maintains a **catalog** — a schema of pre-approved, trusted component types (Button, TextField, Card, etc.) — and the agent can only request components that appear in that catalog. The client validates every payload against its local catalog before rendering.
+
+### Portability
+
+One A2UI JSON response renders across every platform that has a renderer: web (Lit, Angular, React), mobile (Flutter, SwiftUI, Jetpack Compose), and desktop — all from the same agent output.
+
+### LLM-Friendliness
+
+The flat component structure with string IDs is straightforward for language models to generate incrementally and to correct. Agents can stream updates progressively, letting users see the UI build in real time rather than waiting for a complete response.
+
+## Who Is A2UI For?
+
+<CardGroup cols={2}>
+  <Card title="Frontend / Host App Developers" icon="browser" href="/guides/client-setup">
+    Build multi-agent platforms, enterprise assistants, or cross-platform apps where remote agents contribute UI. A2UI gives you full control over styling, theming, and which components agents are allowed to use.
+  </Card>
+  <Card title="Agent Developers" icon="robot" href="/guides/agent-development">
+    Build agents that go beyond chat by generating forms, dashboards, and interactive workflows. A2UI's flat, streamable structure integrates naturally with LLM structured output and any agent framework.
+  </Card>
+  <Card title="Platform & SDK Builders" icon="puzzle-piece" href="/ecosystem/community">
+    Create agent orchestration platforms, custom renderers, or framework integrations. A2UI is Apache 2.0 licensed, transport-agnostic, and designed for extensibility with custom component catalogs.
+  </Card>
+  <Card title="Not sure yet?" icon="compass" href="/quickstart">
+    Run the restaurant finder demo in five minutes to see A2UI end-to-end: a Gemini ADK agent generating JSON streamed into a Lit web renderer — no prior knowledge required.
+  </Card>
+</CardGroup>
+
+## When to Use A2UI
+
+**Good fits:**
+
+- **Agent-generated UI** — the core purpose; agents produce surfaces dynamically at runtime.
+- **Multi-agent systems** — a standard protocol that works across trust boundaries between remote agents and host applications.
+- **Cross-platform apps** — one agent response renders on web, mobile, and desktop without modification.
+- **Security-critical contexts** — declarative data format with catalog-based component allowlisting and client-side validation.
+- **Brand-consistent interfaces** — the host application controls all styling; agent UIs inherit the design system automatically.
+
+**Poor fits:**
+
+- **Static websites** — use HTML/CSS directly.
+- **Simple text-only chat** — Markdown is sufficient.
+- **Remote widgets the host doesn't control** — use iframes (see [MCP Apps](https://modelcontextprotocol.io/docs/extensions/apps)).
+- **A UI and agent built together in a single codebase** — [AG-UI / CopilotKit](https://ag-ui.com/) offers a tighter integration for this scenario.
+
+<Tip>
+  A2UI and AG-UI are complementary, not competing: use AG-UI as the transport pipe and A2UI as the UI payload format. See the [Transports reference](/reference/transports) for a full comparison.
+</Tip>
+
+## What A2UI Is Not
+
+- **Not a framework** — it is a protocol. Renderers exist for Lit, Angular, React, and Flutter, but A2UI itself is framework-agnostic.
+- **Not a replacement for HTML** — it targets agent-generated UIs, not static websites.
+- **Not a styling system** — the client controls styling; A2UI provides limited semantic hints like `variant: "h1"`.
+- **Not web-only** — the same protocol works on mobile and desktop with the appropriate renderer.
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Quickstart" icon="rocket" href="/quickstart">
+    Run the restaurant finder demo end-to-end in under five minutes.
+  </Card>
+  <Card title="Core Concepts" icon="book-open" href="/concepts">
+    Understand surfaces, components, data binding, and catalogs.
+  </Card>
+</CardGroup>

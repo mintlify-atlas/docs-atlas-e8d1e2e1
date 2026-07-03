@@ -1,0 +1,335 @@
+---
+title: "Client Setup: Installing A2UI Renderers for Your App"
+sidebarTitle: "Client Setup"
+description: "Install and configure an A2UI renderer for React, Lit, Angular, or Flutter. All web renderers share the @a2ui/web_core foundation."
+---
+
+A2UI ships a renderer for every major frontend platform. Pick the one that matches your stack, install it alongside the shared `@a2ui/web_core` library, and your application is ready to receive, process, and display agent-generated interfaces. Each renderer wraps the same core protocol logic so behaviour is consistent regardless of which framework you choose.
+
+## Renderer Overview
+
+<CardGroup cols={2}>
+  <Card title="React" icon="react" href="#react">
+    `@a2ui/react` — v0.8 & v0.9 · Stable
+  </Card>
+  <Card title="Lit / Web Components" icon="code" href="#web-components-lit">
+    `@a2ui/lit` — v0.8 & v0.9 · Stable
+  </Card>
+  <Card title="Angular" icon="angular" href="#angular">
+    `@a2ui/angular` — v0.8 & v0.9 · Stable
+  </Card>
+  <Card title="Flutter (GenUI SDK)" icon="mobile" href="#flutter-genui-sdk">
+    `flutter_genui` — v0.8 & v0.9 · Stable
+  </Card>
+</CardGroup>
+
+| Renderer | Platform | v0.8 | v0.9 | Status |
+|---|---|---|---|---|
+| **React** (`@a2ui/react`) | Web | ✅ | ✅ | ✅ Stable |
+| **Lit** (`@a2ui/lit`) | Web | ✅ | ✅ | ✅ Stable |
+| **Angular** (`@a2ui/angular`) | Web | ✅ | ✅ | ✅ Stable |
+| **Flutter** (`flutter_genui`) | Mobile / Desktop / Web | ✅ | ✅ | ✅ Stable |
+| **Jetpack Compose** | Android | — | — | 🚧 Planned Q2 2026 |
+
+For a full list of first-party and community-maintained renderers see the [Renderers Reference](/ecosystem/renderers).
+
+## Shared Web Library: `@a2ui/web_core`
+
+All three web renderers — Lit, Angular, and React — are built on top of **`@a2ui/web_core`** (`v0.10.3`). This shared foundation provides the message processor, state management, and data-binding logic that every web renderer needs. Each framework-specific package adds only the rendering layer on top. You should install `@a2ui/web_core` alongside whichever framework renderer you choose.
+
+The shared `@a2ui/web_core` library provides:
+
+- **Message Processor** — manages A2UI state and processes all incoming agent messages.
+- **Protocol schemas** — Zod-validated message schemas for v0.8 and v0.9.
+- **Basic Catalog** — a minimal out-of-the-box component set (`@a2ui/web_core/v0_9/basic_catalog`).
+
+## Component Catalogs
+
+A **catalog** is a JSON Schema file that tells the agent exactly which components, functions, and themes are available. A2UI ships a Basic Catalog to get you started, but most production applications will define their own catalog to match their design system.
+
+<Tip>
+  Your design system is what matters. You can register any collection of components and functions, and A2UI will use them. See [Defining Your Own Catalog](/guides/defining-your-own-catalog) for details.
+</Tip>
+
+---
+
+## Web Components (Lit)
+
+The Lit renderer turns A2UI messages into native Web Components, making it usable from any framework — or no framework at all.
+
+<Steps>
+  <Step title="Install packages">
+    <CodeGroup>
+      ```bash npm
+      npm install @a2ui/lit @a2ui/web_core
+      ```
+      ```bash yarn
+      yarn add @a2ui/lit @a2ui/web_core
+      ```
+      ```bash pnpm
+      pnpm add @a2ui/lit @a2ui/web_core
+      ```
+    </CodeGroup>
+  </Step>
+  <Step title="Import the versioned entry point">
+    Use the versioned import that matches your agent's protocol version:
+
+    ```ts
+    // v0.9
+    import '@a2ui/lit/v0_9';
+
+    // v0.8
+    import '@a2ui/lit/v0_8';
+    ```
+  </Step>
+  <Step title="Add the surface to your HTML">
+    Place the `<a2ui-surface>` custom element wherever you want agent-generated UI to appear:
+
+    ```html
+    <a2ui-surface surface-id="main"></a2ui-surface>
+    ```
+
+    The Lit renderer uses **Lit Signals** for reactive state management, so the surface updates automatically whenever the message processor receives new data from the agent.
+  </Step>
+</Steps>
+
+The Lit renderer provides:
+
+- **Message Processor** — wraps `@a2ui/web_core`'s processor with Lit-reactive bindings.
+- **`<a2ui-surface>` component** — renders A2UI surfaces as a standard custom element.
+- **Lit Signals** — reactive state management for automatic, efficient UI updates.
+
+<Note>
+  **Working example:** The [Lit shell sample](https://github.com/a2ui-project/a2ui/tree/main/samples/client/lit/shell) on GitHub includes a full README with detailed run instructions.
+</Note>
+
+---
+
+## Angular
+
+The Angular renderer integrates cleanly with Angular's dependency injection system, exposing a service and a dynamic component host that you configure through a standard provider token.
+
+<Steps>
+  <Step title="Install packages">
+    <CodeGroup>
+      ```bash npm
+      npm install @a2ui/angular @a2ui/web_core
+      ```
+      ```bash yarn
+      yarn add @a2ui/angular @a2ui/web_core
+      ```
+      ```bash pnpm
+      pnpm add @a2ui/angular @a2ui/web_core
+      ```
+    </CodeGroup>
+
+    The Angular renderer requires Angular `^21.2.5` as a peer dependency.
+  </Step>
+  <Step title="Configure application providers">
+    A2UI uses versioned imports for its protocol-specific implementations. For v0.9, configure your `ApplicationConfig` as follows:
+
+    ```typescript
+    import { ApplicationConfig } from '@angular/core';
+    import {
+      A2UI_RENDERER_CONFIG,
+      A2uiRendererService,
+      minimalCatalog,
+    } from '@a2ui/angular/v0_9';
+
+    export const appConfig: ApplicationConfig = {
+      providers: [
+        {
+          provide: A2UI_RENDERER_CONFIG,
+          useValue: {
+            catalogs: [minimalCatalog],
+            actionHandler: action => {
+              console.log('Action dispatched:', action);
+            },
+          },
+        },
+        A2uiRendererService,
+      ],
+    };
+    ```
+  </Step>
+  <Step title="Add the component host to your template">
+    Use `a2ui-v09-component-host` in any Angular template to render the agent-generated surface:
+
+    ```html
+    <a2ui-v09-component-host [surfaceId]="'main'" />
+    ```
+  </Step>
+</Steps>
+
+The Angular renderer provides:
+
+- **`A2uiRendererService`** — manages the A2UI message processor and reactive model.
+- **`a2ui-v09-component-host`** — a dynamic component host that renders A2UI components from a surface.
+- **`A2UI_RENDERER_CONFIG` token** — configures catalogs and action handlers via Angular DI.
+
+### Streaming
+
+By default, the Angular renderer uses the streaming API. To disable streaming when running the sample app inside the A2UI monorepo, set the environment variable before starting:
+
+```bash
+export ENABLE_STREAMING=false
+yarn start restaurant
+```
+
+<Note>
+  The `yarn start` command above is specific to the A2UI monorepo sample applications. For standalone projects, use the package manager of your choice (npm, pnpm, yarn, etc.).
+</Note>
+
+<Note>
+  **Working examples:** See the [Angular samples](https://github.com/a2ui-project/a2ui/tree/main/samples/client/angular) on GitHub.
+</Note>
+
+---
+
+## React
+
+The React renderer follows familiar React patterns — a class-based message processor, a surface component, and a hook for accessing the processor anywhere in the tree.
+
+<Steps>
+  <Step title="Install packages">
+    <CodeGroup>
+      ```bash npm
+      npm install @a2ui/react @a2ui/web_core
+      ```
+      ```bash yarn
+      yarn add @a2ui/react @a2ui/web_core
+      ```
+      ```bash pnpm
+      pnpm add @a2ui/react @a2ui/web_core
+      ```
+    </CodeGroup>
+
+    The React renderer requires `react` and `react-dom` `^19.2.7` as peer dependencies.
+  </Step>
+  <Step title="Import the versioned entry point">
+    Use the versioned import that matches the protocol version your agent targets:
+
+    <Tabs>
+      <Tab title="v0.9">
+        ```tsx
+        import { MessageProcessor, A2UISurface, useA2UI } from '@a2ui/react/v0_9';
+        ```
+      </Tab>
+      <Tab title="v0.8">
+        ```tsx
+        import { MessageProcessor, A2UISurface, useA2UI } from '@a2ui/react/v0_8';
+        ```
+      </Tab>
+    </Tabs>
+  </Step>
+  <Step title="Set up the message processor and render a surface">
+    Create a `MessageProcessor` instance, feed it agent messages, and place `<A2UISurface>` where you want the generated UI to appear:
+
+    ```tsx
+    import { useRef } from 'react';
+    import { MessageProcessor, A2UISurface, useA2UI } from '@a2ui/react/v0_9';
+
+    const processor = new MessageProcessor();
+
+    export function AgentSurface() {
+      return <A2UISurface processor={processor} surfaceId="main" />;
+    }
+    ```
+
+    Use the `useA2UI()` hook to access the processor from any child component.
+  </Step>
+</Steps>
+
+The React renderer provides:
+
+- **`MessageProcessor` class** — manages A2UI state and processes incoming messages.
+- **`<A2UISurface>` component** — renders agent-generated surfaces in your React app.
+- **`useA2UI()` hook** — accesses the active message processor from any component in the tree.
+
+<Note>
+  **Working example:** The [React shell sample](https://github.com/a2ui-project/a2ui/tree/main/samples/client/react/shell) on GitHub shows a complete integration.
+</Note>
+
+---
+
+## Flutter (GenUI SDK)
+
+Flutter uses the first-party **GenUI SDK**, which provides native A2UI rendering across mobile, desktop, and web targets.
+
+<Steps>
+  <Step title="Add the package">
+    ```bash
+    flutter pub add flutter_genui
+    ```
+  </Step>
+  <Step title="Follow the GenUI getting-started guide">
+    The GenUI SDK has its own dedicated documentation covering widget setup, protocol configuration, and catalog registration for Flutter.
+
+    - [GenUI SDK docs](https://docs.flutter.dev/ai/genui)
+    - [GenUI GitHub repository](https://github.com/flutter/genui)
+    - [Getting started with GenUI (README)](https://github.com/flutter/genui/blob/main/packages/genui/README.md#getting-started-with-genui)
+  </Step>
+</Steps>
+
+---
+
+## Connecting to Agents
+
+Once your renderer is installed, your client application needs to complete three tasks:
+
+<Steps>
+  <Step title="Receive A2UI messages from the agent">
+    Choose a transport mechanism appropriate for your use case:
+
+    - **Server-Sent Events (SSE)** — one-way streaming from server to client.
+    - **WebSockets** — bidirectional real-time communication.
+    - **A2A Protocol** — standardised agent-to-agent communication with built-in A2UI support.
+
+    See the [Transports reference](/reference/transports) for details.
+  </Step>
+  <Step title="Process messages with the Message Processor">
+    Feed each received message into the renderer's `MessageProcessor`. The processor validates, parses, and applies each message to the live UI state.
+
+    See [`samples/client/lit/shell/client.ts`](https://github.com/a2ui-project/a2ui/tree/main/samples/client/lit/shell/client.ts) for an example using the A2A protocol client.
+  </Step>
+  <Step title="Send user actions back to the agent">
+    When users interact with A2UI components (clicking buttons, submitting forms), the client:
+
+    1. Captures the `@a2uiaction` event from the component.
+    2. Resolves any data context required for the action.
+    3. Sends the action payload to the agent.
+    4. Processes the agent's response messages.
+
+    See the `@a2uiaction` event handler in [`samples/client/lit/shell/app.ts`](https://github.com/a2ui-project/a2ui/tree/main/samples/client/lit/shell/app.ts) for examples of handling button clicks and form submissions.
+  </Step>
+</Steps>
+
+## Error Handling
+
+Common errors to handle in your client integration:
+
+| Error | Cause |
+|---|---|
+| **Invalid Surface ID** | Surface referenced before `beginRendering` (v0.8) or `createSurface` (v0.9) was received. |
+| **Invalid Component ID** | Component IDs must be unique within a surface. |
+| **Invalid Data Path** | Check the data model structure and JSON Pointer syntax. |
+| **Schema Validation Failed** | Verify the message format matches the A2UI specification. |
+
+See the `try...catch` blocks in `#sendMessage` in [`samples/client/lit/shell/app.ts`](https://github.com/a2ui-project/a2ui/tree/main/samples/client/lit/shell/app.ts) for examples of handling communication errors gracefully.
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Theming & Styling" icon="palette" href="/guides/theming">
+    Customize colors, fonts, and dark mode to match your brand.
+  </Card>
+  <Card title="Defining Your Own Catalog" icon="layer-group" href="/guides/defining-your-own-catalog">
+    Restrict the agent to your design system's components.
+  </Card>
+  <Card title="A2UI with Any Agent Framework" icon="plug" href="/guides/a2ui-with-any-agent-framework">
+    Use AG-UI and CopilotKit to connect any agent framework.
+  </Card>
+  <Card title="Protocol Reference" icon="book" href="/reference/messages">
+    Deep-dive into A2UI message schemas and the protocol specification.
+  </Card>
+</CardGroup>

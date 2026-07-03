@@ -1,0 +1,109 @@
+{
+  "projectType": "framework",
+  "projectName": "A2UI",
+  "projectDescription": "A2UI (Agent-to-User Interface) is an open-source declarative UI protocol that lets AI agents generate rich, interactive, native-rendered interfaces across web and mobile platforms without executing arbitrary code.",
+  "theme": "luma",
+  "primaryColor": "#ffffff",
+  "lightColor": "#ffffff",
+  "darkColor": null,
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Documentation",
+        "groups": [
+          {
+            "group": "Get Started",
+            "pages": [
+              "introduction",
+              "quickstart",
+              "concepts"
+            ]
+          },
+          {
+            "group": "Client Integration",
+            "pages": [
+              "guides/client-setup",
+              "guides/defining-your-own-catalog",
+              "guides/theming",
+              "guides/a2ui-with-any-agent-framework"
+            ]
+          },
+          {
+            "group": "Agent Development",
+            "pages": [
+              "guides/agent-development",
+              "guides/agent-sdk",
+              "guides/mcp-integration"
+            ]
+          },
+          {
+            "group": "Building Renderers",
+            "pages": [
+              "guides/renderer-development",
+              "guides/authoring-components"
+            ]
+          },
+          {
+            "group": "Ecosystem",
+            "pages": [
+              "ecosystem/renderers",
+              "ecosystem/community",
+              "ecosystem/a2ui-in-the-world",
+              "roadmap"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "Reference",
+        "groups": [
+          {
+            "group": "Protocol",
+            "pages": [
+              "reference/messages",
+              "reference/components",
+              "reference/catalogs",
+              "reference/data-binding",
+              "reference/transports"
+            ]
+          },
+          {
+            "group": "Specification",
+            "pages": [
+              "specification/v0-9-1",
+              "specification/v1-0",
+              "specification/v0-8-legacy"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "keyFeatures": [
+    "Declarative JSON protocol for agent-generated UIs — safe like data, expressive like code",
+    "Framework-agnostic: renderers for React, Angular, Lit (Web Components), and Flutter",
+    "Flat adjacency-list component model optimized for LLM streaming and incremental updates",
+    "Custom component catalogs — agents are restricted to client-approved component allowlists",
+    "Data binding via JSON Pointer paths separating UI structure from application state",
+    "Transport-agnostic: works over A2A Protocol, AG-UI (CopilotKit), WebSockets, SSE, and REST",
+    "Shared @a2ui/web_core library providing message processing, state management and data binding for all web renderers",
+    "Python and Kotlin agent SDKs with prompt generation, streaming parsing, and schema validation"
+  ],
+  "publicApiSurface": [
+    "@a2ui/react — React renderer package (npm)",
+    "@a2ui/angular — Angular renderer package (npm)",
+    "@a2ui/lit — Lit / Web Components renderer package (npm)",
+    "@a2ui/web_core — Shared web core library (npm)",
+    "MessageProcessor — processes A2UI JSONL message streams",
+    "A2uiRendererService — Angular service for message processing and reactive model",
+    "A2UI_RENDERER_CONFIG — Angular injection token for catalog and action handler config",
+    "<a2ui-surface> — Lit custom element that renders a surface",
+    "a2ui-v09-component-host — Angular component host for dynamic rendering",
+    "createSurface / updateComponents / updateDataModel / deleteSurface — v0.9 message types",
+    "surfaceUpdate / dataModelUpdate / beginRendering — v0.8 (legacy) message types",
+    "actionResponse — v1.0 message type for synchronous RPC",
+    "A2uiCatalog.render_as_llm_instructions() — Python SDK method to generate LLM system prompt",
+    "InferenceStrategy.generate_system_prompt() — Python SDK abstract interface for prompt assembly",
+    "Basic Catalog JSON Schema — https://a2ui.org/specification/v0_9_1/catalogs/basic/catalog.json"
+  ]
+}
