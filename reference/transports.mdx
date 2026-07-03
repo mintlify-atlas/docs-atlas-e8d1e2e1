@@ -1,7 +1,7 @@
 ---
 title: "A2UI Transports: Delivering Messages from Agent to Client"
 sidebarTitle: "Transports"
-description: "Overview of every A2UI transport—A2A Protocol, AG-UI, REST, WebSockets, and SSE—with status, use cases, and guidance on choosing the right delivery mechanism."
+description: "A2UI transports—A2A Protocol, AG-UI, REST, WebSockets, SSE—with status, use cases, and guidance on selecting the right message delivery mechanism."
 ---
 
 A2UI is **transport-agnostic**: the protocol defines a sequence of JSON messages, and anything that can carry JSON from an agent to a client is a valid transport. The choice of transport depends on your application architecture — whether you are building a multi-agent enterprise system, a full-stack React application, or a simple REST endpoint serving a mobile client.
@@ -134,9 +134,9 @@ Content-Type: application/json
 HTTP/1.1 200 OK
 Content-Type: application/x-ndjson
 
-{ "version": "v0.9", "createSurface": { "surfaceId": "orders", "catalogId": "..." } }
-{ "version": "v0.9", "updateComponents": { "surfaceId": "orders", "components": [...] } }
-{ "version": "v0.9", "updateDataModel": { "surfaceId": "orders", "path": "/", "value": {...} } }
+{ "version": "v0.9.1", "createSurface": { "surfaceId": "orders", "catalogId": "..." } }
+{ "version": "v0.9.1", "updateComponents": { "surfaceId": "orders", "components": [...] } }
+{ "version": "v0.9.1", "updateDataModel": { "surfaceId": "orders", "path": "/", "value": {...} } }
 ```
 
 The client reads the response body line by line and hands each parsed JSON object to the A2UI renderer.
@@ -158,14 +158,14 @@ The agent sends A2UI messages as individual WebSocket text frames (one JSON obje
 ```
 Client → WS frame: { "message": "Update the dashboard" }
 
-Agent → WS frame: { "version": "v0.9", "updateDataModel": { "surfaceId": "dashboard", ... } }
-Agent → WS frame: { "version": "v0.9", "updateComponents": { "surfaceId": "dashboard", ... } }
+Agent → WS frame: { "version": "v0.9.1", "updateDataModel": { "surfaceId": "dashboard", ... } }
+Agent → WS frame: { "version": "v0.9.1", "updateComponents": { "surfaceId": "dashboard", ... } }
 ```
 
 User action events travel the other direction over the same connection:
 
 ```
-Client → WS frame: { "version": "v0.9", "action": { "name": "refresh", "surfaceId": "dashboard" } }
+Client → WS frame: { "version": "v0.9.1", "action": { "name": "refresh", "surfaceId": "dashboard" } }
 ```
 
 <Note>
@@ -184,11 +184,11 @@ Each A2UI message is sent as an SSE `data:` event:
 GET /agent/stream?sessionId=abc123
 Accept: text/event-stream
 
-data: { "version": "v0.9", "createSurface": { "surfaceId": "main", "catalogId": "..." } }
+data: { "version": "v0.9.1", "createSurface": { "surfaceId": "main", "catalogId": "..." } }
 
-data: { "version": "v0.9", "updateComponents": { "surfaceId": "main", "components": [...] } }
+data: { "version": "v0.9.1", "updateComponents": { "surfaceId": "main", "components": [...] } }
 
-data: { "version": "v0.9", "updateDataModel": { "surfaceId": "main", "path": "/", "value": {...} } }
+data: { "version": "v0.9.1", "updateDataModel": { "surfaceId": "main", "path": "/", "value": {...} } }
 ```
 
 User actions from the client are sent back via a separate POST request or WebSocket channel.

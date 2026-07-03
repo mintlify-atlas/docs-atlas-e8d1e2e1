@@ -1,7 +1,7 @@
 ---
 title: "Client Setup: Installing A2UI Renderers for Your App"
 sidebarTitle: "Client Setup"
-description: "Install and configure an A2UI renderer for React, Lit, Angular, or Flutter. All web renderers share the @a2ui/web_core foundation."
+description: "Install and configure an A2UI renderer for React, Lit, Angular, or Flutter. All web renderers share the @a2ui/web_core foundation for protocol handling."
 ---
 
 A2UI ships a renderer for every major frontend platform. Pick the one that matches your stack, install it alongside the shared `@a2ui/web_core` library, and your application is ready to receive, process, and display agent-generated interfaces. Each renderer wraps the same core protocol logic so behaviour is consistent regardless of which framework you choose.
@@ -133,19 +133,19 @@ The Angular renderer integrates cleanly with Angular's dependency injection syst
     import {
       A2UI_RENDERER_CONFIG,
       A2uiRendererService,
-      minimalCatalog,
+      BasicCatalog,
     } from '@a2ui/angular/v0_9';
 
     export const appConfig: ApplicationConfig = {
       providers: [
         {
           provide: A2UI_RENDERER_CONFIG,
-          useValue: {
-            catalogs: [minimalCatalog],
+          useFactory: () => ({
+            catalogs: [new BasicCatalog()],
             actionHandler: action => {
               console.log('Action dispatched:', action);
             },
-          },
+          }),
         },
         A2uiRendererService,
       ],
@@ -212,39 +212,55 @@ The React renderer follows familiar React patterns — a class-based message pro
     <Tabs>
       <Tab title="v0.9">
         ```tsx
-        import { MessageProcessor, A2UISurface, useA2UI } from '@a2ui/react/v0_9';
+        import { A2uiSurface, basicCatalog } from '@a2ui/react/v0_9';
+        import { MessageProcessor } from '@a2ui/web_core/v0_9';
         ```
       </Tab>
       <Tab title="v0.8">
         ```tsx
-        import { MessageProcessor, A2UISurface, useA2UI } from '@a2ui/react/v0_8';
+        import { MessageProcessor, A2UIRenderer, useA2UI } from '@a2ui/react/v0_8';
         ```
       </Tab>
     </Tabs>
   </Step>
   <Step title="Set up the message processor and render a surface">
-    Create a `MessageProcessor` instance, feed it agent messages, and place `<A2UISurface>` where you want the generated UI to appear:
+    Create a `MessageProcessor` instance (imported from `@a2ui/web_core/v0_9`), feed it agent messages, and place `<A2uiSurface>` where you want the generated UI to appear:
 
     ```tsx
-    import { useRef } from 'react';
-    import { MessageProcessor, A2UISurface, useA2UI } from '@a2ui/react/v0_9';
+    import { useMemo, useState, useEffect } from 'react';
+    import { A2uiSurface, basicCatalog, ReactComponentImplementation } from '@a2ui/react/v0_9';
+    import { MessageProcessor, SurfaceModel } from '@a2ui/web_core/v0_9';
 
-    const processor = new MessageProcessor();
+    export function App() {
+      const processor = useMemo(
+        () => new MessageProcessor([basicCatalog], action => console.log('Action:', action)),
+        [],
+      );
+      const [surfaces, setSurfaces] = useState<SurfaceModel<ReactComponentImplementation>[]>([]);
 
-    export function AgentSurface() {
-      return <A2UISurface processor={processor} surfaceId="main" />;
+      useEffect(() => {
+        const s1 = processor.onSurfaceCreated(s => setSurfaces(p => [...p, s]));
+        const s2 = processor.onSurfaceDeleted(id => setSurfaces(p => p.filter(s => s.id !== id)));
+        return () => { s1.unsubscribe(); s2.unsubscribe(); };
+      }, [processor]);
+
+      return (
+        <>
+          {surfaces.map(surface => (
+            <A2uiSurface key={surface.id} surface={surface} />
+          ))}
+        </>
+      );
     }
     ```
-
-    Use the `useA2UI()` hook to access the processor from any child component.
   </Step>
 </Steps>
 
 The React renderer provides:
 
-- **`MessageProcessor` class** — manages A2UI state and processes incoming messages.
-- **`<A2UISurface>` component** — renders agent-generated surfaces in your React app.
-- **`useA2UI()` hook** — accesses the active message processor from any component in the tree.
+- **`MessageProcessor` class** (from `@a2ui/web_core/v0_9`) — manages A2UI state and processes incoming messages.
+- **`<A2uiSurface>` component** (from `@a2ui/react/v0_9`) — renders an agent-generated surface in your React app.
+- **`basicCatalog`** — the built-in component catalog, passed to `MessageProcessor` at construction time.
 
 <Note>
   **Working example:** The [React shell sample](https://github.com/a2ui-project/a2ui/tree/main/samples/client/react/shell) on GitHub shows a complete integration.

@@ -1,7 +1,7 @@
 ---
 title: "A2UI Data Binding: JSON Pointer Paths and Reactive State"
 sidebarTitle: "Data Binding"
-description: "How A2UI binds component properties to live data model values using JSON Pointer paths, updateDataModel messages, dynamic lists, and bidirectional input sync."
+description: "A2UI data binding with JSON Pointer paths: bind component properties to live state, send updateDataModel messages, render dynamic lists, and sync inputs."
 ---
 
 A2UI cleanly separates **UI structure** (the component tree) from **application state** (the data model). Component definitions describe what the interface looks like; the data model holds the values those components display. Binding a component property to a JSON Pointer path means the client updates that property automatically whenever the underlying data changes — the agent never has to resend component definitions just to change a displayed value.
@@ -138,7 +138,7 @@ Use `updateDataModel` to write any JSON value to any path. Affected components r
 
     ```json
     {
-      "version": "v0.9",
+      "version": "v0.9.1",
       "updateDataModel": {
         "surfaceId": "dashboard",
         "path": "/",
@@ -154,7 +154,7 @@ Use `updateDataModel` to write any JSON value to any path. Affected components r
 
     ```json
     {
-      "version": "v0.9",
+      "version": "v0.9.1",
       "updateDataModel": {
         "surfaceId": "dashboard",
         "path": "/user/name",
@@ -167,7 +167,7 @@ Use `updateDataModel` to write any JSON value to any path. Affected components r
 
     ```json
     {
-      "version": "v0.9",
+      "version": "v0.9.1",
       "updateDataModel": {
         "surfaceId": "dashboard",
         "path": "/cart/items",
@@ -182,7 +182,7 @@ Use `updateDataModel` to write any JSON value to any path. Affected components r
 
     ```json
     {
-      "version": "v0.9",
+      "version": "v0.9.1",
       "updateDataModel": {
         "surfaceId": "dashboard",
         "path": "/ui/loading"
@@ -247,7 +247,7 @@ This example shows a complete binding cycle: a component bound to a path, the in
 
 ```json
 {
-  "version": "v0.9",
+  "version": "v0.9.1",
   "updateComponents": {
     "surfaceId": "order-tracker",
     "components": [
@@ -266,7 +266,7 @@ This example shows a complete binding cycle: a component bound to a path, the in
 
 ```json
 {
-  "version": "v0.9",
+  "version": "v0.9.1",
   "updateDataModel": {
     "surfaceId": "order-tracker",
     "path": "/order/status",
@@ -281,7 +281,7 @@ The `status-display` component now shows `"Processing…"`.
 
 ```json
 {
-  "version": "v0.9",
+  "version": "v0.9.1",
   "updateDataModel": {
     "surfaceId": "order-tracker",
     "path": "/order/status",
@@ -351,7 +351,7 @@ Bind a container's `children` to an array path to render one template component 
 
     ```json
     {
-      "version": "v0.9",
+      "version": "v0.9.1",
       "updateDataModel": {
         "surfaceId": "store",
         "path": "/products",
@@ -402,7 +402,7 @@ Input components write user changes back into the data model automatically. The 
     |-----------|----------------|-------------|-------------------|
     | `TextField` | `value` | Types `"Alice"` | `/form/name` → `"Alice"` |
     | `CheckBox` | `value` | Checks the box | `/form/agreed` → `true` |
-    | `ChoicePicker` | `selections` | Selects `"ca"` | `/form/country` → `["ca"]` |
+    | `ChoicePicker` | `value` | Selects `"ca"` | `/form/country` → `["ca"]` |
     | `Slider` | `value` | Drags to `72` | `/settings/volume` → `72` |
     | `DateTimeInput` | `value` | Picks a date | `/booking/date` → ISO string |
 
@@ -426,7 +426,7 @@ Input components write user changes back into the data model automatically. The 
 
 ```json
 {
-  "version": "v0.9",
+  "version": "v0.9.1",
   "updateDataModel": {
     "surfaceId": "profile",
     "path": "/user/name",

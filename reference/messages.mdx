@@ -1,14 +1,14 @@
 ---
-title: "A2UI Message Types: Full Schema Reference"
+title: "A2UI Message Types: Complete Protocol Reference Guide"
 sidebarTitle: "Messages"
-description: "Complete reference for all A2UI message types—createSurface, updateComponents, updateDataModel, and deleteSurface—with schemas, properties, and streaming examples."
+description: "Reference for A2UI message types—createSurface, updateComponents, updateDataModel, deleteSurface—with schemas, field tables, and JSONL examples."
 ---
 
-A2UI communicates through a small set of typed JSON messages sent as **JSON Lines (JSONL)**, where each newline-delimited object is exactly one message. Agents stream these messages to clients over any supported transport. The v0.9 protocol adds a top-level `"version"` field to every message and flattens the component object format; v0.8 messages use a nested wrapper style and end with a `beginRendering` signal.
+A2UI communicates through a small set of typed JSON messages sent as **JSON Lines (JSONL)**, where each newline-delimited object is exactly one message. Agents stream these messages to clients over any supported transport. The v0.9.1 protocol adds a top-level `"version"` field to every message and flattens the component object format; v0.8 messages use a nested wrapper style and end with a `beginRendering` signal.
 
 <Tabs>
-  <Tab title="v0.9 (Current)">
-    All v0.9 messages include `"version": "v0.9"` as their first field. The four core message types are:
+  <Tab title="v0.9.1 (Current)">
+    All v0.9.1 messages include `"version": "v0.9.1"` as their first field. The four core message types are:
 
     | Message | Purpose |
     |---------|---------|
@@ -18,7 +18,7 @@ A2UI communicates through a small set of typed JSON messages sent as **JSON Line
     | `deleteSurface` | Tear down a surface and free all associated state |
   </Tab>
   <Tab title="v1.0 (Candidate)">
-    v1.0 includes all four v0.9 messages plus `actionResponse`, which lets the agent reply directly to a user-triggered action event without starting a new conversation turn.
+    v1.0 includes all four v0.9.1 messages plus `actionResponse`, which lets the agent reply directly to a user-triggered action event without starting a new conversation turn.
   </Tab>
   <Tab title="v0.8 (Legacy)">
     v0.8 omits the `version` field. Rendering is triggered by a dedicated `beginRendering` message sent **after** component and data messages have been buffered:
@@ -39,13 +39,13 @@ A2UI communicates through a small set of typed JSON messages sent as **JSON Line
 Initializes a new rendering surface and declares which component catalog the agent will use for the lifetime of that surface.
 
 <Tabs>
-  <Tab title="v0.9 — createSurface">
+  <Tab title="v0.9.1 — createSurface">
 
     ### TypeScript Schema
 
     ```typescript
     {
-      version: "v0.9";
+      version: "v0.9.1";
       createSurface: {
         surfaceId: string;       // Required: unique surface identifier
         catalogId: string;       // Required: URL of the component catalog
@@ -58,7 +58,7 @@ Initializes a new rendering surface and declares which component catalog the age
     ### Properties
 
     <ParamField body="version" type="string" required>
-      Must be `"v0.9"`. Identifies the protocol version for this message.
+      Must be `"v0.9.1"`. Identifies the protocol version for this message.
     </ParamField>
 
     <ParamField body="createSurface.surfaceId" type="string" required>
@@ -81,7 +81,7 @@ Initializes a new rendering surface and declares which component catalog the age
 
     ```json
     {
-      "version": "v0.9",
+      "version": "v0.9.1",
       "createSurface": {
         "surfaceId": "booking",
         "catalogId": "https://a2ui.org/specification/v0_9_1/catalogs/basic/catalog.json"
@@ -90,7 +90,7 @@ Initializes a new rendering surface and declares which component catalog the age
     ```
 
     <Note>
-      In v0.9 the root component is identified by convention: one component in the subsequent `updateComponents` message must carry `"id": "root"`. There is no separate `root` field in `createSurface`.
+      In v0.9.1 the root component is identified by convention: one component in the subsequent `updateComponents` message must carry `"id": "root"`. There is no separate `root` field in `createSurface`.
     </Note>
 
   </Tab>
@@ -152,13 +152,13 @@ Initializes a new rendering surface and declares which component catalog the age
 Adds or replaces components within a surface. Re-sending a component with an existing `id` is an update, not a duplicate.
 
 <Tabs>
-  <Tab title="v0.9 — updateComponents">
+  <Tab title="v0.9.1 — updateComponents">
 
     ### TypeScript Schema
 
     ```typescript
     {
-      version: "v0.9";
+      version: "v0.9.1";
       updateComponents: {
         surfaceId: string;
         components: Array<{
@@ -192,7 +192,7 @@ Adds or replaces components within a surface. Re-sending a component with an exi
 
     ```json
     {
-      "version": "v0.9",
+      "version": "v0.9.1",
       "updateComponents": {
         "surfaceId": "booking",
         "components": [
@@ -318,7 +318,7 @@ Adds or replaces components within a surface. Re-sending a component with an exi
 | Error | Cause | Solution |
 |-------|-------|---------|
 | Surface already exists | `surfaceId` is already active | Use a globally unique ID; an orchestrator should manage surface IDs across subagents |
-| Surface not found | `surfaceId` does not match a created surface | Ensure `createSurface` was sent first (v0.9) or that the ID matches an implicit v0.8 surface |
+| Surface not found | `surfaceId` does not match a created surface | Ensure `createSurface` was sent first (v0.9.1) or that the ID matches an implicit v0.8 surface |
 | Invalid component type | Unknown component name for the negotiated catalog | Verify the type name against the catalog schema |
 | Invalid property | Property not declared for this component type | Check the catalog definition |
 | Circular reference | A component references itself as a child | Restructure the component hierarchy |
@@ -330,13 +330,13 @@ Adds or replaces components within a surface. Re-sending a component with an exi
 Updates the per-surface data model that components bind to via JSON Pointer paths. Any component whose bound path is affected automatically re-renders.
 
 <Tabs>
-  <Tab title="v0.9 — updateDataModel">
+  <Tab title="v0.9.1 — updateDataModel">
 
     ### TypeScript Schema
 
     ```typescript
     {
-      version: "v0.9";
+      version: "v0.9.1";
       updateDataModel: {
         surfaceId: string;  // Required: target surface
         path?: string;      // Optional: JSON Pointer path; defaults to "/"
@@ -365,7 +365,7 @@ Updates the per-surface data model that components bind to via JSON Pointer path
 
     ```json
     {
-      "version": "v0.9",
+      "version": "v0.9.1",
       "updateDataModel": {
         "surfaceId": "booking",
         "path": "/",
@@ -383,7 +383,7 @@ Updates the per-surface data model that components bind to via JSON Pointer path
 
     ```json
     {
-      "version": "v0.9",
+      "version": "v0.9.1",
       "updateDataModel": {
         "surfaceId": "booking",
         "path": "/reservation/guests",
@@ -452,13 +452,13 @@ Updates the per-surface data model that components bind to via JSON Pointer path
 Removes a surface and frees all associated component definitions and data model state. Safe to call on a surface that no longer exists (no-op).
 
 <Tabs>
-  <Tab title="v0.9 — deleteSurface">
+  <Tab title="v0.9.1 — deleteSurface">
 
     ### TypeScript Schema
 
     ```typescript
     {
-      version: "v0.9";
+      version: "v0.9.1";
       deleteSurface: {
         surfaceId: string;
       }
@@ -469,7 +469,7 @@ Removes a surface and frees all associated component definitions and data model 
 
     ```json
     {
-      "version": "v0.9",
+      "version": "v0.9.1",
       "deleteSurface": {
         "surfaceId": "booking"
       }
@@ -509,7 +509,7 @@ Removes a surface and frees all associated component definitions and data model 
 </ParamField>
 
 <Tip>
-  Send `deleteSurface` when closing modals, navigating away from a view, or completing a task. The identical inner structure works in both v0.8 and v0.9 — the only difference is the top-level `version` field.
+  Send `deleteSurface` when closing modals, navigating away from a view, or completing a task. The identical inner structure works in both v0.8 and v0.9.1 — the only difference is the top-level `version` field.
 </Tip>
 
 ---
@@ -519,12 +519,12 @@ Removes a surface and frees all associated component definitions and data model 
 Messages for different surfaces are fully independent and can be interleaved freely. Within a single surface, ordering rules apply.
 
 <Tabs>
-  <Tab title="v0.9 Recommended Order">
+  <Tab title="v0.9.1 Recommended Order">
 
     ```jsonl
-    { "version": "v0.9", "createSurface":    { "surfaceId": "main", "catalogId": "https://a2ui.org/specification/v0_9_1/catalogs/basic/catalog.json" } }
-    { "version": "v0.9", "updateComponents": { "surfaceId": "main", "components": [...] } }
-    { "version": "v0.9", "updateDataModel":  { "surfaceId": "main", "path": "/", "value": {...} } }
+    { "version": "v0.9.1", "createSurface":    { "surfaceId": "main", "catalogId": "https://a2ui.org/specification/v0_9_1/catalogs/basic/catalog.json" } }
+    { "version": "v0.9.1", "updateComponents": { "surfaceId": "main", "components": [...] } }
+    { "version": "v0.9.1", "updateDataModel":  { "surfaceId": "main", "path": "/", "value": {...} } }
     ```
 
     Components and data can be interleaved freely after `createSurface`. The client renders as each message arrives (progressive rendering).
@@ -550,12 +550,12 @@ Messages for different surfaces are fully independent and can be interleaved fre
 The following sequence builds a complete booking surface from scratch, then tears it down after confirmation. Each line is sent as soon as it is generated — the client renders progressively.
 
 ```jsonl
-{ "version": "v0.9", "createSurface": { "surfaceId": "booking", "catalogId": "https://a2ui.org/specification/v0_9_1/catalogs/basic/catalog.json" } }
-{ "version": "v0.9", "updateComponents": { "surfaceId": "booking", "components": [{ "id": "root", "component": "Column", "children": ["header", "date-field", "guests-field", "submit-btn"] }] } }
-{ "version": "v0.9", "updateComponents": { "surfaceId": "booking", "components": [{ "id": "header", "component": "Text", "text": "Book a Table", "variant": "h1" }, { "id": "date-field", "component": "DateTimeInput", "value": { "path": "/reservation/datetime" }, "enableDate": true, "enableTime": true }] } }
-{ "version": "v0.9", "updateComponents": { "surfaceId": "booking", "components": [{ "id": "guests-field", "component": "TextField", "label": "Guests", "value": { "path": "/reservation/guests" }, "textFieldType": "number" }, { "id": "submit-btn", "component": "Button", "child": "submit-label", "variant": "primary", "action": { "event": { "name": "confirm" } } }, { "id": "submit-label", "component": "Text", "text": "Confirm" }] } }
-{ "version": "v0.9", "updateDataModel": { "surfaceId": "booking", "path": "/reservation", "value": { "datetime": "2025-12-16T19:00:00Z", "guests": "2" } } }
-{ "version": "v0.9", "deleteSurface": { "surfaceId": "booking" } }
+{ "version": "v0.9.1", "createSurface": { "surfaceId": "booking", "catalogId": "https://a2ui.org/specification/v0_9_1/catalogs/basic/catalog.json" } }
+{ "version": "v0.9.1", "updateComponents": { "surfaceId": "booking", "components": [{ "id": "root", "component": "Column", "children": ["header", "date-field", "guests-field", "submit-btn"] }] } }
+{ "version": "v0.9.1", "updateComponents": { "surfaceId": "booking", "components": [{ "id": "header", "component": "Text", "text": "Book a Table", "variant": "h1" }, { "id": "date-field", "component": "DateTimeInput", "value": { "path": "/reservation/datetime" }, "enableDate": true, "enableTime": true }] } }
+{ "version": "v0.9.1", "updateComponents": { "surfaceId": "booking", "components": [{ "id": "guests-field", "component": "TextField", "label": "Guests", "value": { "path": "/reservation/guests" }, "textFieldType": "number" }, { "id": "submit-btn", "component": "Button", "child": "submit-label", "variant": "primary", "action": { "event": { "name": "confirm" } } }, { "id": "submit-label", "component": "Text", "text": "Confirm" }] } }
+{ "version": "v0.9.1", "updateDataModel": { "surfaceId": "booking", "path": "/reservation", "value": { "datetime": "2025-12-16T19:00:00Z", "guests": "2" } } }
+{ "version": "v0.9.1", "deleteSurface": { "surfaceId": "booking" } }
 ```
 
 <Note>

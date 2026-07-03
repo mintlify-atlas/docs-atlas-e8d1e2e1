@@ -70,6 +70,17 @@ All A2UI communication is a sequence of self-contained JSON messages (streamed a
     }}
     ```
   </Tab>
+  <Tab title="v1.0 (Candidate)">
+    | Message | Purpose |
+    |---|---|
+    | `createSurface` | Create a new surface and declare which catalog the agent will use |
+    | `updateComponents` | Add or update UI components in a surface |
+    | `updateDataModel` | Update application state at a specific JSON Pointer path |
+    | `deleteSurface` | Remove a surface and release its resources |
+    | `actionResponse` | Respond to client-initiated actions |
+
+    v1.0 introduces the `actionResponse` message type, enabling robust client-to-server synchronous RPC capabilities. The message structure is otherwise identical to v0.9.
+  </Tab>
   <Tab title="v0.8 (Legacy)">
     | Message | Purpose |
     |---|---|

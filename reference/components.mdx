@@ -1,5 +1,5 @@
 ---
-title: "A2UI Component Reference: Basic Catalog Gallery"
+title: "A2UI Component Reference: Basic Catalog Properties"
 sidebarTitle: "Components"
 description: "Full reference for every component in the A2UI basic catalog—layout, display, input, and list—with properties and JSON examples for v0.9 and v0.8."
 ---
@@ -32,7 +32,7 @@ The component catalogue is largely the same across v0.8 and v0.9. The structural
 | Text/image styling | `usageHint` | `variant` |
 | Button styling | `primary: true` | `variant: "primary"` |
 | Action format | `{ "name": "..." }` | `{ "event": { "name": "..." } }` |
-| Choice component | `MultipleChoice` | `ChoicePicker` |
+| Choice component | `MultipleChoice` (`selections` binding) | `ChoicePicker` (`value` binding) |
 | Layout alignment | `distribution`, `alignment` | `justify`, `align` |
 | TextField value prop | `text` | `value` |
 
@@ -137,86 +137,6 @@ Arranges child components top-to-bottom in a vertical stack.
           "children": { "explicitList": ["header", "body", "footer"] },
           "distribution": "start",
           "alignment": "stretch"
-        }
-      }
-    }
-    ```
-
-  </Tab>
-</Tabs>
-</Accordion>
-
-<Accordion title="Stack — layered overlay container">
-
-Layers children on top of one another (z-axis stacking). Useful for overlays and badges.
-
-<Tabs>
-  <Tab title="v0.9">
-
-    <ParamField body="children" type="array">
-      Array of child component IDs, rendered in order from bottom to top.
-    </ParamField>
-
-    ```json
-    {
-      "id": "overlay-stack",
-      "component": "Stack",
-      "children": ["background-image", "overlay-text"]
-    }
-    ```
-
-  </Tab>
-  <Tab title="v0.8">
-
-    ```json
-    {
-      "id": "overlay-stack",
-      "component": {
-        "Stack": {
-          "children": { "explicitList": ["background-image", "overlay-text"] }
-        }
-      }
-    }
-    ```
-
-  </Tab>
-</Tabs>
-</Accordion>
-
-<Accordion title="Padding — spacing wrapper">
-
-Wraps a single child with configurable inset padding.
-
-<Tabs>
-  <Tab title="v0.9">
-
-    <ParamField body="child" type="string" required>
-      ID of the single child component.
-    </ParamField>
-
-    <ParamField body="padding" type="number | object">
-      Uniform padding value or `{ top, right, bottom, left }` object.
-    </ParamField>
-
-    ```json
-    {
-      "id": "padded-card",
-      "component": "Padding",
-      "child": "info-card",
-      "padding": 16
-    }
-    ```
-
-  </Tab>
-  <Tab title="v0.8">
-
-    ```json
-    {
-      "id": "padded-card",
-      "component": {
-        "Padding": {
-          "child": "info-card",
-          "padding": 16
         }
       }
     }
@@ -679,12 +599,12 @@ Renders a list of labeled options. The user can select one or more; the selectio
       Array of `{ "label": string, "value": string }` objects.
     </ParamField>
 
-    <ParamField body="selections" type="DataBinding" required>
-      Path to the array of currently selected values in the data model.
+    <ParamField body="value" type="DataBinding" required>
+      Path to the string array of currently selected values in the data model.
     </ParamField>
 
-    <ParamField body="maxAllowedSelections" type="number">
-      Maximum number of simultaneous selections. Use `1` for a single-select (dropdown equivalent).
+    <ParamField body="variant" type="string">
+      Selection behavior. Values: `mutuallyExclusive` (default, single-select), `multipleSelection` (multi-select).
     </ParamField>
 
     ```json
@@ -696,15 +616,15 @@ Renders a list of labeled options. The user can select one or more; the selectio
         { "label": "Canada",        "value": "ca" },
         { "label": "Mexico",        "value": "mx" }
       ],
-      "selections": { "path": "/form/country" },
-      "maxAllowedSelections": 1
+      "value": { "path": "/form/country" },
+      "variant": "mutuallyExclusive"
     }
     ```
 
   </Tab>
   <Tab title="v0.8 — MultipleChoice">
 
-    In v0.8, option labels use the `literalString` wrapper.
+    In v0.8, option labels use the `literalString` wrapper and the binding property is `selections`.
 
     ```json
     {

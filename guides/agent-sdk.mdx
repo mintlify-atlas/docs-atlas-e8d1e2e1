@@ -63,34 +63,55 @@ The SDK is intentionally layered. Each layer has a single responsibility, making
 `CatalogConfig` is a lightweight descriptor that tells the SDK where to load a component schema from and where to find its matching few-shot examples.
 
 ```python
+from dataclasses import dataclass
+from typing import Optional
+
+@dataclass
 class CatalogConfig:
-    name: str                          # Human-readable label, e.g. "BasicCatalog"
-    provider: A2uiCatalogProvider      # Loads the raw JSON Schema
-    examples_path: Optional[str] = None  # Path to example JSON files
+    name: str                                          # Human-readable label, e.g. "BasicCatalog"
+    provider: A2uiCatalogProvider                      # Loads the raw JSON Schema
+    examples_path: Optional[str] = None                # Path or glob pattern to example JSON files
+    custom_cuttable_keys: Optional[frozenset[str]] = None  # Override default stream-healable keys
 ```
 
-The `provider` abstraction lets you load schemas from bundled package resources (the default), from a local filesystem path during development, or from any custom source you implement.
+The `provider` abstraction lets you load schemas from bundled package resources (the default), from a local filesystem path during development, or from any custom source you implement. `custom_cuttable_keys` controls which string-valued keys the streaming parser may safely auto-close when a chunk arrives mid-value.
 
 ---
 
 ### `A2uiCatalog`
 
-`A2uiCatalog` is the processed form of a catalog — it holds the loaded schema, a ready-to-use validator, and the `render_as_llm_instructions` method that serialises the catalog for injection into a system prompt.
+`A2uiCatalog` is the processed, frozen form of a catalog — it holds the loaded schema, a ready-to-use validator, and the `render_as_llm_instructions()` method that serialises the catalog for injection into a system prompt.
 
 ```python
-class A2uiCatalog:
-    name: str
-    validator: A2uiValidator
+from dataclasses import dataclass
+from typing import Any, Dict, Optional
 
-    def render_as_llm_instructions(self, options: InstructionOptions) -> str:
+@dataclass(frozen=True)
+class A2uiCatalog:
+    version: str                              # Protocol version, e.g. "0.9"
+    name: str                                 # Catalog name
+    s2c_schema: Dict[str, Any]               # Server-to-client message schema
+    common_types_schema: Dict[str, Any]      # Shared type definitions
+    catalog_schema: Dict[str, Any]           # Component definitions
+    custom_cuttable_keys: Optional[frozenset[str]] = None
+
+    @property
+    def validator(self) -> A2uiValidator: ...
+
+    @property
+    def catalog_id(self) -> str: ...
+
+    def render_as_llm_instructions(self) -> str:
         """
-        Generates a string representation of the catalog (schemas and examples)
-        suitable for inclusion in an LLM system prompt.
+        Renders the catalog schemas as an LLM instruction block, wrapping
+        the server-to-client schema, common types, and catalog schema in
+        standard ---BEGIN A2UI JSON SCHEMA--- / ---END A2UI JSON SCHEMA---
+        delimiters. Returns the combined string ready for prompt injection.
         """
         ...
 ```
 
-The rendered string includes the full JSON Schema for every component in the catalog, formatted as a Markdown code block with surrounding context that tells the model exactly how to use it.
+`render_as_llm_instructions()` takes no parameters — it serialises the catalog's loaded schemas directly into a Markdown-formatted instruction block that tells the model exactly which components and messages are valid.
 
 ---
 
@@ -145,7 +166,7 @@ class InferenceStrategy(ABC):
     Generates prompts by dynamically loading and organising component schemas and examples from catalogs. This is the recommended choice for most agents — it automatically selects the right catalog based on client capabilities and prunes unused components.
   </Card>
   <Card title="A2uiTemplateManager" icon="file-code">
-    Generates prompts using predefined UI templates or static structures. Useful when the agent's UI vocabulary is fixed at build time and you want deterministic prompts without runtime schema loading.
+    Defines the same `generate_system_prompt` interface but is not yet implemented — calling it raises `NotImplementedError`. It is reserved for a future mode that generates prompts from predefined static templates without runtime schema loading.
   </Card>
 </CardGroup>
 
@@ -219,12 +240,12 @@ These tags also act as deterministic delimiters for the streaming parser — the
 
 ## The Streaming Parser
 
-`A2uiStreamParser` processes the LLM's text stream in real time, extracting A2UI payloads without waiting for the full response to complete. This enables progressive rendering on the client side.
+`A2uiStreamParser` processes the LLM's text stream in real time, extracting A2UI payloads without waiting for the full response to complete. This enables progressive rendering on the client side. Import it from `a2ui.parser.streaming`.
 
 ### Basic usage
 
 ```python
-from a2ui.streaming.parser import A2uiStreamParser
+from a2ui.parser.streaming import A2uiStreamParser
 
 parser = A2uiStreamParser(catalog=my_catalog)
 
@@ -300,11 +321,11 @@ After the JSON is parseable, `A2uiValidator` runs five categories of deeper chec
 Once a payload passes validation it must be transmitted to the client. A2UI uses the **Agent-to-Agent (A2A) DataPart** transport envelope for this.
 
 ```python
-from a2ui.transport import create_a2ui_part
+from a2ui.a2a.parts import create_a2ui_part
 
 # Wrap validated JSON in a DataPart with the correct MIME type
 part = create_a2ui_part(validated_a2ui_json)
-# → DataPart(mimeType="application/a2ui+json", data=<json bytes>)
+# → Part(root=DataPart(metadata={"mimeType": "application/a2ui+json"}, data=...))
 ```
 
 The `application/a2ui+json` MIME type signals to any A2A-compatible client that the part should be routed to an A2UI renderer rather than displayed as plain text.

@@ -1,5 +1,5 @@
 ---
-title: "Building a New A2UI Renderer from Scratch"
+title: "Building a New A2UI Renderer from Scratch: Full Guide"
 sidebarTitle: "Renderer Development"
 description: "Learn when to build a custom A2UI renderer, how to use @a2ui/web_core for web targets, and the full compliance checklist for v0.9.1, v1.0, and v0.8."
 ---
@@ -55,17 +55,14 @@ Every module you would otherwise have to write yourself is already in `@a2ui/web
 `@a2ui/web_core` publishes a separate API surface for each protocol version so you can target exactly the version your renderer needs:
 
 ```typescript
-// v0.8 — stable legacy API
+// v0.8 — stable legacy API (also accessible via '@a2ui/web_core/data/model-processor')
 import {A2uiMessageProcessor} from '@a2ui/web_core/v0_8';
 
 // v0.9 / v0.9.1 — current production, with createSurface, custom catalogs, client functions
 import {MessageProcessor, SurfaceModel} from '@a2ui/web_core/v0_9';
 
-// v1.0 — release candidate, adds RPC action responses and surfaceProperties
-import {MessageProcessor} from '@a2ui/web_core/v1_0';
-
 // Shared types — usable across all versions
-import type * as Types     from '@a2ui/web_core/types/types';
+import type * as Types      from '@a2ui/web_core/types/types';
 import type * as Primitives from '@a2ui/web_core/types/primitives';
 
 // Style and layout helpers — shared across all versions
@@ -73,7 +70,7 @@ import * as Styles from '@a2ui/web_core/styles/index';
 ```
 
 <Note>
-  The package root (`import ... from '@a2ui/web_core'`) defaults to the v0.8 entrypoint for backward compatibility. For new renderers, always import from the explicit versioned path such as `@a2ui/web_core/v0_9`.
+  The package root (`import ... from '@a2ui/web_core'`) defaults to the v0.8 entrypoint for backward compatibility. For new renderers, always import from the explicit versioned path such as `@a2ui/web_core/v0_9`. A dedicated `@a2ui/web_core/v1_0` entrypoint is not yet published; v1.0 protocol support is currently implemented inside `@a2ui/web_core/v0_9`.
 </Note>
 
 ### The three things every web renderer must do

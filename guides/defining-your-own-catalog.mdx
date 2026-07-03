@@ -166,25 +166,6 @@ Key fields:
 
     1. **Define a JSON Schema** describing your widget properties (same structure as the web example above).
     2. **Map the schema to Flutter widgets** by creating a custom renderer that instantiates the correct widget class for each component name.
-    3. **Register the renderer** with the GenUI SDK configuration so it is used whenever the agent targets your `catalogId`.
-
-    ```dart
-    // Example: registering a custom component renderer
-    GenUIConfig(
-      catalogId: 'my-app-catalog',
-      componentRenderers: {
-        'StatusBadge': (props) => StatusBadgeWidget(
-          text: props['text'] as String,
-          variant: props['variant'] as String? ?? 'success',
-        ),
-        'Metric': (props) => MetricWidget(
-          label: props['label'] as String,
-          value: props['value'] as String,
-          trend: props['trend'] as String?,
-        ),
-      },
-    );
-    ```
 
     <Note>
       A detailed Flutter integration guide is coming soon. See the [GenUI SDK docs](https://docs.flutter.dev/ai/genui) in the meantime.
